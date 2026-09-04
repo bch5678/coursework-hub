@@ -7,6 +7,7 @@
 | 课程 | 项目 | 入口 |
 |---|---|---|
 | BN5212 | MIMIC-IV + MIMIC-CXR cohort、时间对齐、标签、患者划分、数据清洗与 DataLoader | [项目说明](courses/BN5212/bn5212-data-pipeline/README.md) |
+| BN5212 | Benchmark evaluation：统一评测框架、baseline 测试和团队模型版本比较 | [工作说明](courses/BN5212/benchmark-evaluation/README.md) |
 
 BN5212 数据流水线对应 MIMIC-IV v3.1 和 MIMIC-CXR v2.1.0。默认任务是从早期胸片预测住院死亡。项目包含完整数据接口、服务器一键脚本和 23 项合成数据测试；实际数据由每位获授权的成员通过自己的本地/服务器路径读取。
 
