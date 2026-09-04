@@ -1,0 +1,8 @@
+# Versions used for the local Windows/Python 3.12 validation.
+# Server CUDA builds may use a different compatible PyTorch distribution.
+numpy==2.3.5
+pandas==3.0.1
+Pillow==12.3.0
+pydicom==3.0.2
+torch==2.14.0
+pytest==9.1.1

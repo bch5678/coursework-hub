@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+/data/
+/runs/
+/demo/
+*.part
+*.log
+*.local.json
+.env
+*credentials*
+*private_manifest*

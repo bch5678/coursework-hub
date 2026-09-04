@@ -1,0 +1,23 @@
+# Local environments and caches
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+.DS_Store
+Thumbs.db
+
+# Private configuration (do not put credentials into committed examples)
+.env
+.env.*
+!.env.example
+*.local.json
+*.local.yaml
+*.local.yml
+*private_manifest*
+*.part
+
+# Scratch space at repository root; project directories own their data rules.
+/work/
+/outputs/

@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "dataset_versions": {"mimic_iv": "3.1", "mimic_cxr": "2.1.0"},
+  "paths": {
+    "mimic_iv_root": "../data/raw/mimiciv/3.1",
+    "image_root": "../data/raw/mimic-cxr/2.1.0",
+    "cxr_metadata": null,
+    "output_dir": "../runs/mortality_v1"
+  },
+  "cohort": {
+    "min_age": 18,
+    "views": ["AP", "PA"],
+    "selection": "first_per_admission"
+  },
+  "alignment": {"max_hours_after_admission": 48, "minimum_hours_before_end": 0},
+  "label": {
+    "kind": "in_hospital_mortality",
+    "column": "hospital_expire_flag",
+    "positive_values": ["1"],
+    "negative_values": ["0"]
+  },
+  "split": {"seed": 5212, "train": 0.7, "val": 0.15, "test": 0.15, "stratify": true},
+  "cleaning": {"verify_images": true, "invalid_image_policy": "drop", "max_invalid_image_fraction": 0.05},
+  "loader": {"image_size": 224, "channels": 1, "batch_size": 16, "num_workers": 0, "mean": [0.5], "std": [0.5]},
+  "audit": {"hash_images": false}
+}

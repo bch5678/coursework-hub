@@ -1,0 +1,12 @@
+{
+  "destination_root": "../data/raw",
+  "downloads": [
+    {
+      "url": "https://YOUR-AUTHORIZED-HOST.example/course-subset.zip",
+      "destination": "archives/course-subset.zip",
+      "sha256": "REPLACE_WITH_TRUSTED_64_CHARACTER_SHA256",
+      "extract_to": "course-subset",
+      "max_extract_bytes": 107374182400
+    }
+  ]
+}
