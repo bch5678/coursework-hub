@@ -31,7 +31,7 @@ templates/
 1. 由仓库所有者在 GitHub 中邀请组员，组员接受邀请后参与协作。
 2. 下载或克隆仓库，进入对应项目目录，按该项目的 README 配置环境。
 3. 为自己的改动建立分支，例如 `bn5212/add-training`，完成后提交 Pull Request，请组员查看再合入 main。
-4. 新课程作业放到 `courses/<课程代码>/<项目名称>/`，复制 [README 模板](templates/project-README.md)，并更新本页项目表。
+4. 新课程作业放到 `courses/BN5212/<分工角色>/`，复制 [README 模板](templates/project-README.md)，并更新本页项目表。
 
 详细规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。每个项目保留自己的依赖，避免给一门课改环境时影响其他课程。
 
