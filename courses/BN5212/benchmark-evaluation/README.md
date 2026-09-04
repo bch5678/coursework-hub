@@ -11,6 +11,78 @@
 3. 团队设计的多模态 module 能否超过简单融合 baseline。
 4. 不同模型版本之间的提升是否稳定、可信且可复现。
 
+## 当前实现
+
+第一版通用框架已经提供：
+
+- 冻结 dataset/index hash 和 patient split 校验。
+- 统一的 `sample_id,y_score` 预测接口。
+- validation threshold selection 和独立 test evaluation。
+- 默认住院级加权聚合，以及显式 sample-level 选项。
+- AUROC、AUPRC、分类指标、Brier score 和患者级 bootstrap 95% CI。
+- ROC、PR、calibration 和 confusion matrix 图。
+- 单次模型的自包含离线 `report.html`。
+- 多模型 `leaderboard.csv` 和 `leaderboard.html`。
+- train-prevalence baseline 和 PyTorch model adapter 接口。
+- 数据/预测边界情况和端到端自动测试。
+
+## 环境准备
+
+需要 Python 3.10+。本项目维护独立环境，不修改数据流水线的依赖。
+
+```bash
+cd courses/BN5212/benchmark-evaluation
+python -m venv .venv
+.venv/bin/python -m pip install -e ".[test]"
+.venv/bin/python -m pytest
+```
+
+Windows 激活环境后使用 `.venv\\Scripts\\python.exe` 和 `.venv\\Scripts\\bn5212-evaluate.exe` 等对应入口。
+
+## 最小运行方式
+
+先用 train set prevalence 作为所有样本的预测概率，验证真实数据目录到 HTML 报告的完整链路：
+
+```bash
+.venv/bin/bn5212-prevalence-baseline \
+  --run-dir /srv/derived/bn5212/mortality_v1 \
+  --output-dir outputs/prevalence-v1
+```
+
+测试任意模型时，模型分别对 validation 和 test 输出仅包含以下两列的 CSV：
+
+```csv
+sample_id,y_score
+cxr_example_1,0.137
+cxr_example_2,0.824
+```
+
+`y_score` 必须是院内死亡正类的概率，范围为 `[0,1]`。评分器从冻结 index 读取真实标签，并要求预测 ID 与对应 split 完全一致。
+
+```bash
+.venv/bin/bn5212-evaluate \
+  --run-dir /srv/derived/bn5212/mortality_v1 \
+  --val-predictions /srv/predictions/model-v1-val.csv \
+  --test-predictions /srv/predictions/model-v1-test.csv \
+  --model-name proposed-multimodal \
+  --model-version v1 \
+  --checkpoint /srv/checkpoints/model-v1.pt \
+  --output-dir outputs/proposed-multimodal-v1
+```
+
+默认按 `hadm_id` 评测。一次住院有多张图像时，以 `sample_weight` 对预测概率加权平均；当前默认 cohort 一次住院只有一张图，因此聚合不会改变结果。只有在评测协议明确要求图像级结果时才使用 `--evaluation-unit sample`。
+
+模型比较命令：
+
+```bash
+.venv/bin/bn5212-compare \
+  outputs/prevalence-v1 outputs/proposed-multimodal-v1 \
+  --output-csv outputs/leaderboard.csv \
+  --output-html outputs/leaderboard.html
+```
+
+`report.html` 和 `leaderboard.html` 可直接双击或拖入浏览器打开。单模型报告将所有图像以内嵌 base64 保存，因此断网时仍可完整查看；报告内的 CSV/JSON 下载链接使用同目录相对路径。
+
 ## 职责范围
 
 ### 1. 固定评测协议
@@ -126,6 +198,8 @@ outputs/<dataset-version>/<model-version>/<run-id>/
   precision_recall_curve.png
   calibration_curve.png
   confusion_matrix.png
+  report.html
+  SUCCESS.json
 ```
 
 其中 `predictions.csv` 至少包含 `sample_id`、`subject_id`、`hadm_id`、真实标签、预测概率、split、模型版本和 checkpoint hash。结果文件不应包含受限的原始数据或账号凭证。
@@ -152,12 +226,12 @@ outputs/<dataset-version>/<model-version>/<run-id>/
 
 ## 当前状态与后续工作
 
-当前仓库只完成数据流水线，尚无训练、模型或 evaluation 实现；现有验证结果来自人工合成数据，不能作为真实 benchmark 表现。
+通用评分、HTML 报告、prevalence baseline 和模型 adapter 第一版已经实现，并已通过合成数据自动测试。当前尚无真实课程数据结果，也尚未接入另外两位成员的训练 checkpoint；现有测试数值不能作为真实 benchmark 表现。
 
 下一步需要：
 
 1. 等数据负责人完成真实服务器运行并冻结首版 index/split。
 2. 与两位建模负责人确定单模态和多模态 checkpoint 接口。
 3. 确定主指标、阈值选择规则、评测聚合单位和 baseline 清单。
-4. 先在合成数据和伪模型上完成 evaluation 框架测试。
-5. 依次接入 baseline、单模态模型和多模态模型，并维护统一结果表。
+4. 在服务器真实数据目录运行 prevalence baseline，确认端到端报告产物。
+5. 依次接入图像单模态、另一模态、简单融合和团队多模态模型，并维护统一结果表。

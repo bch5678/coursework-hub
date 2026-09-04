@@ -1,0 +1,8 @@
+/.venv/
+/build/
+/dist/
+*.egg-info/
+/outputs/
+/.pytest_cache/
+/**/__pycache__/
+*.py[cod]
