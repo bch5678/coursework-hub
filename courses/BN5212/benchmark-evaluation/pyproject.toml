@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bn5212-benchmark"
+version = "0.1.0"
+description = "Reproducible benchmark evaluation for the BN5212 mortality project"
+requires-python = ">=3.10"
+dependencies = [
+  "matplotlib>=3.8,<4",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<4",
+  "scikit-learn>=1.5,<2",
+]
+
+[project.optional-dependencies]
+inference = ["torch>=2.6,<3"]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+bn5212-evaluate = "bn5212_benchmark.cli:evaluate_main"
+bn5212-prevalence-baseline = "bn5212_benchmark.cli:prevalence_main"
+bn5212-compare = "bn5212_benchmark.cli:compare_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
