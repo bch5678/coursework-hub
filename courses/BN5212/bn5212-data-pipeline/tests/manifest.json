@@ -1,0 +1,16 @@
+{
+  "source_zip": "E:\\School\\# Doctor\\BN5212\\BN5212\\MIMIC-IV\\MIMIC_IV.zip",
+  "unit_of_analysis": "hospital admission (hadm_id)",
+  "rows": 546028,
+  "features": 512,
+  "format": "scipy CSR sparse matrix with feature hashing",
+  "matrix_file": "mimic_iv_embeddings.npz",
+  "metadata_file": "mimic_iv_admissions.csv",
+  "metadata_order_matches_matrix_rows": true,
+  "columns": [
+    "subject_id",
+    "hadm_id",
+    "hospital_expire_flag"
+  ],
+  "note": "hospital_expire_flag is stored only as metadata/target, not included in input features; vectors are tabular hashed features, not learned neural embeddings."
+}
