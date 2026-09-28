@@ -1,0 +1,44 @@
+{
+  "experiment": "smoke",
+  "notes": "Synthetic fixture only. Tiny model, synthetic clinical values with an injected label signal to prove the loop learns. NEVER a benchmark result.",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "../bn5212-data-pipeline/demo/png/processed",
+    "clinical_provider": "synthetic",
+    "clinical_timesteps": 12,
+    "clinical_signal": 1.5,
+    "batch_size": 8
+  },
+  "image_encoder": {
+    "name": "vit",
+    "embed_dim": 96,
+    "patch_size": 8,
+    "depth": 2,
+    "num_heads": 3
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "embed_dim": 96,
+    "tokenization": "per_variable"
+  },
+  "fusion": {
+    "name": "joint_self_attention",
+    "embed_dim": 96,
+    "depth": 2,
+    "num_heads": 3
+  },
+  "head": {
+    "num_outputs": 1
+  },
+  "optim": {
+    "epochs": 3,
+    "lr": 0.001,
+    "warmup_epochs": 0,
+    "early_stopping_patience": 5
+  },
+  "seed": 5212,
+  "device": "cpu"
+}

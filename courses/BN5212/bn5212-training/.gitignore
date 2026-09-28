@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.pyc
+/outputs/
+/runs/
+/demo/
+/data/
+*.pt
+*.ckpt
+*.log
+*.local.json
+.env
+*credentials*

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bn5212-training"
+version = "0.1.0"
+description = "Shared training framework and unimodal baselines for the BN5212 multimodal mortality project"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<4",
+  "matplotlib>=3.8,<4",
+  "Pillow>=10.4,<13",
+  "pydicom>=3.0,<4",
+  "torch>=2.6,<3",
+]
+
+[project.optional-dependencies]
+pretrained = ["timm>=1.0,<2"]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+bn5212-train = "bn5212_training.cli:train_main"
+bn5212-predict = "bn5212_training.cli:predict_main"
+bn5212-summarize = "bn5212_training.cli:summarize_main"
+bn5212-extract-clinical = "bn5212_training.cli:extract_clinical_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -12,9 +12,14 @@ from torch.utils.data import Dataset
 from .images import image_array
 from .io import safe_path, sha256
 
-INDEX_COLUMNS = ["sample_id", "subject_id", "hadm_id", "study_id", "dicom_id", "image_path", "study_time",
+INDEX_COLUMNS = ["sample_id", "subject_id", "hadm_id", "stay_id", "study_id", "dicom_id", "image_path", "study_time",
                  "admittime", "dischtime", "deathtime", "hours_since_admission", "view", "gender",
                  "age_at_admission", "age_is_topcoded", "label", "label_name", "sample_weight", "split"]
+
+# The column list before stay_id was added. Runs frozen under it stay loadable, so
+# adding the ICU study unit does not invalidate earlier results. Consumers that
+# check a subset of columns (the benchmark project does) are unaffected either way.
+LEGACY_INDEX_COLUMNS = [name for name in INDEX_COLUMNS if name != "stay_id"]
 
 
 class MimicCXRDataset(Dataset):
@@ -32,8 +37,8 @@ class MimicCXRDataset(Dataset):
         index_path = self.run_dir / "index.csv"
         if sha256(index_path) != self.spec["index_sha256"]:
             raise ValueError("index.csv checksum does not match dataset_spec.json")
-        self.frame = pd.read_csv(index_path, dtype={key: str for key in ["sample_id", "subject_id", "hadm_id", "study_id", "dicom_id", "image_path"]})
-        if list(self.frame.columns) != INDEX_COLUMNS:
+        self.frame = pd.read_csv(index_path, dtype={key: str for key in ["sample_id", "subject_id", "hadm_id", "stay_id", "study_id", "dicom_id", "image_path"]})
+        if list(self.frame.columns) not in (INDEX_COLUMNS, LEGACY_INDEX_COLUMNS):
             raise ValueError("Unexpected unified index schema")
         self.frame = self.frame[self.frame.split.eq(split)].reset_index(drop=True)
         if self.frame.empty:

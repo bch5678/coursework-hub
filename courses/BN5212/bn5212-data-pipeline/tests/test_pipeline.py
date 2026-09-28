@@ -160,3 +160,86 @@ def test_invalid_split_configuration(png_run):
 def test_minimum_patient_count(png_run):
     with pytest.raises(ValueError, match="three eligible"):
         assign_splits(pd.DataFrame({"subject_id": ["1", "2"], "label": [0, 1]}), load_config(png_run[0]), Audit())
+
+
+# --- ICU study unit -------------------------------------------------------
+# The icu_stay unit anchors the observation window on the ICU intime and moves
+# the prediction to the end of that window, which is the setting MeTra uses.
+
+
+@pytest.fixture(scope="module")
+def icu_run(tmp_path_factory):
+    config = make_synthetic(tmp_path_factory.mktemp("icu") / "fixture")
+    cfg = json.loads(Path(config).read_text(encoding="utf-8"))
+    cfg["cohort"]["unit"] = "icu_stay"
+    cfg["cohort"]["selection"] = "first_per_icu_stay"
+    cfg["alignment"]["icu_observation_hours"] = 48
+    cfg["paths"]["output_dir"] = "processed_icu"
+    icu_config = Path(config).with_name("icu_config.json")
+    icu_config.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    output, report = build(icu_config)
+    return icu_config, output, report
+
+
+def test_icu_unit_reports_stays_and_populates_stay_id(icu_run):
+    _config, output, report = icu_run
+    assert report["cohort_unit"] == "icu_stay"
+    assert report["counts"]["icu_stays"] > 0
+    frame = pd.read_csv(output / "index.csv", dtype={"stay_id": str})
+    assert frame.stay_id.notna().all() and frame.stay_id.str.strip().ne("").all()
+    # first_per_icu_stay keeps one row per stay.
+    assert frame.groupby("stay_id").size().max() == 1
+
+
+def test_icu_unit_runs_the_icu_specific_stages(icu_run):
+    _config, _output, report = icu_run
+    stages = {row["stage"] for row in report["cohort_flow"]}
+    for stage in ["valid_icu_stay_ids", "linked_icu_stay", "imaging_inside_icu_window",
+                  "outcome_undetermined_at_prediction_time", "first_per_icu_stay"]:
+        assert stage in stages, stage
+
+
+def test_icu_unit_keeps_the_dataloader_contract(icu_run):
+    _config, output, _report = icu_run
+    check_run(output)
+
+
+def test_admission_unit_leaves_stay_id_empty(png_run):
+    """The two units publish one schema, so downstream code needs no branch."""
+    _config, output, _report = png_run
+    frame = pd.read_csv(output / "index.csv", dtype={"stay_id": str})
+    assert "stay_id" in frame.columns
+    assert frame.stay_id.fillna("").eq("").all()
+
+
+def test_icu_unit_requires_the_matching_selection(png_run):
+    config, _output, _report = png_run
+    cfg = json.loads(Path(config).read_text(encoding="utf-8"))
+    cfg["cohort"]["unit"] = "icu_stay"
+    with pytest.raises(ValueError, match="first_per_icu_stay"):
+        validate_config(cfg)
+
+
+def test_icu_selection_requires_the_icu_unit(png_run):
+    config, _output, _report = png_run
+    cfg = json.loads(Path(config).read_text(encoding="utf-8"))
+    cfg["cohort"]["selection"] = "first_per_icu_stay"
+    with pytest.raises(ValueError, match="requires cohort.unit=icu_stay"):
+        validate_config(cfg)
+
+
+def test_unknown_cohort_unit_is_rejected(png_run):
+    config, _output, _report = png_run
+    cfg = json.loads(Path(config).read_text(encoding="utf-8"))
+    cfg["cohort"]["unit"] = "ward_stay"
+    with pytest.raises(ValueError, match="cohort.unit"):
+        validate_config(cfg)
+
+
+def test_unknown_optional_key_is_still_rejected(png_run):
+    """Optional keys widen the schema; they must not disable the strictness."""
+    config, _output, _report = png_run
+    cfg = json.loads(Path(config).read_text(encoding="utf-8"))
+    cfg["cohort"]["typo_key"] = 1
+    with pytest.raises(ValueError, match="Missing/unknown keys in cohort"):
+        validate_config(cfg)

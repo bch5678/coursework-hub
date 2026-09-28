@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0",
+  "description": "MIMIC-IV itemid mapping for the 17 variables of the standard benchmark extraction that MeTra builds on. Verify against your own d_items/d_labitems with: bn5212-extract-clinical --inspect-items. The resolution report prints the label each itemid actually carries, so a wrong id shows up as a mismatched label instead of silently extracting the wrong signal.",
+  "hour_aggregation_default": "mean",
+  "variables": {
+    "Heart Rate": {
+      "source": "chartevents",
+      "itemids": [220045],
+      "unit": "bpm",
+      "valid_range": [10, 300]
+    },
+    "Respiratory rate": {
+      "source": "chartevents",
+      "itemids": [220210, 224690],
+      "unit": "insp/min",
+      "valid_range": [1, 90]
+    },
+    "Oxygen saturation": {
+      "source": "chartevents",
+      "itemids": [220277, 220227],
+      "unit": "%",
+      "valid_range": [20, 100]
+    },
+    "Systolic blood pressure": {
+      "source": "chartevents",
+      "itemids": [220179, 220050, 225309],
+      "unit": "mmHg",
+      "valid_range": [20, 300]
+    },
+    "Diastolic blood pressure": {
+      "source": "chartevents",
+      "itemids": [220180, 220051, 225310],
+      "unit": "mmHg",
+      "valid_range": [5, 200]
+    },
+    "Mean blood pressure": {
+      "source": "chartevents",
+      "itemids": [220181, 220052, 225312],
+      "unit": "mmHg",
+      "valid_range": [10, 250]
+    },
+    "Temperature": {
+      "source": "chartevents",
+      "itemids": [223762],
+      "convert": {"223761": "fahrenheit_to_celsius"},
+      "unit": "degC",
+      "valid_range": [25, 45]
+    },
+    "Glucose": {
+      "source": "chartevents",
+      "itemids": [220621, 225664, 226537],
+      "lab_itemids": [50931],
+      "unit": "mg/dL",
+      "valid_range": [5, 2000]
+    },
+    "Fraction inspired oxygen": {
+      "source": "chartevents",
+      "itemids": [223835],
+      "convert": {"223835": "percent_to_fraction_if_above_one"},
+      "unit": "fraction",
+      "valid_range": [0.2, 1.0]
+    },
+    "Glasgow coma scale eye opening": {
+      "source": "chartevents",
+      "itemids": [220739],
+      "unit": "score",
+      "valid_range": [1, 4],
+      "aggregation": "last",
+      "categorical_map": {
+        "none": 1,
+        "to pain": 2,
+        "to painful stimuli": 2,
+        "to speech": 3,
+        "to sound": 3,
+        "spontaneously": 4
+      }
+    },
+    "Glasgow coma scale verbal response": {
+      "source": "chartevents",
+      "itemids": [223900],
+      "unit": "score",
+      "valid_range": [1, 5],
+      "aggregation": "last",
+      "categorical_map": {
+        "no response": 1,
+        "no response-ett": 1,
+        "none": 1,
+        "incomprehensible sounds": 2,
+        "inappropriate words": 3,
+        "confused": 4,
+        "oriented": 5
+      }
+    },
+    "Glasgow coma scale motor response": {
+      "source": "chartevents",
+      "itemids": [223901],
+      "unit": "score",
+      "valid_range": [1, 6],
+      "aggregation": "last",
+      "categorical_map": {
+        "no response": 1,
+        "none": 1,
+        "abnormal extension": 2,
+        "abnormal flexion": 3,
+        "flex-withdraws": 4,
+        "localizes pain": 5,
+        "obeys commands": 6
+      }
+    },
+    "Glasgow coma scale total": {
+      "source": "derived",
+      "derived_from": [
+        "Glasgow coma scale eye opening",
+        "Glasgow coma scale verbal response",
+        "Glasgow coma scale motor response"
+      ],
+      "operation": "sum",
+      "unit": "score",
+      "valid_range": [3, 15],
+      "aggregation": "last",
+      "note": "MIMIC-IV does not chart a GCS total; it is summed from the three components when all are present in the same hour. MeTra dropped two variables for 100% missingness and this is a likely candidate."
+    },
+    "Height": {
+      "source": "chartevents",
+      "itemids": [226730],
+      "convert": {"226707": "inches_to_cm"},
+      "unit": "cm",
+      "valid_range": [60, 250],
+      "aggregation": "last"
+    },
+    "Weight": {
+      "source": "chartevents",
+      "itemids": [226512, 224639],
+      "convert": {"226531": "pounds_to_kg"},
+      "unit": "kg",
+      "valid_range": [10, 500],
+      "aggregation": "last"
+    },
+    "pH": {
+      "source": "chartevents",
+      "itemids": [223830],
+      "lab_itemids": [50820],
+      "unit": "pH",
+      "valid_range": [6.5, 8.0]
+    },
+    "Capillary refill rate": {
+      "source": "chartevents",
+      "itemids": [224308, 223951],
+      "unit": "binary",
+      "valid_range": [0, 1],
+      "aggregation": "last",
+      "categorical_map": {
+        "normal <3 seconds": 0,
+        "normal <3 secs": 0,
+        "brisk": 0,
+        "abnormal >3 seconds": 1,
+        "abnormal >3 secs": 1,
+        "delayed": 1
+      },
+      "note": "Rarely charted in MIMIC-IV. MeTra dropped two variables for 100% missingness and this is the other likely candidate. An empty column is a finding, not a bug."
+    }
+  }
+}

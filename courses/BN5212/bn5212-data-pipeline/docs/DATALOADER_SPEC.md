@@ -2,6 +2,27 @@
 
 ## 研究对象与预测时点
 
+`cohort.unit` 选择研究单位，默认 `admission`，可选 `icu_stay`。两种单位发布**同一份
+index 结构**，下游无需分支。
+
+### admission（默认，行为与 v1.0 相同）
+
+一行对应某次住院的首张合格早期 AP/PA 胸片，`study_time` 是预测时点，
+`stay_id` 为空字符串。
+
+### icu_stay（对齐 MeTra）
+
+一行对应一次 ICU 住院。观察窗口为 `[intime, intime + alignment.icu_observation_hours)`
+（默认 48 小时），胸片取自该窗口内，**预测时点是窗口结束时刻**而非拍片时刻。
+需要 `icu/icustays.csv[.gz]`，并使用 `cohort.selection = first_per_icu_stay`。
+
+窗口结束时刻必须严格早于结局（`deathtime` 或 `dischtime`）。这一条同时保证：
+患者存活过整个窗口，且住院尚未结束——否则记录提前中断本身会泄漏存活信息。
+
+MIMIC-IV 中同一患者的非连续 ICU 住院保留为不同 `stay_id`，本流水线不合并它们；
+`first_per_icu_stay` 每个 stay 取一张图，`sample_weight` 按 `stay_id` 归一。
+患者级 split 隔离不变，因此同一患者的多次 ICU 住院始终落在同一个 split。
+
 默认一行对应某位患者某次住院的首张合格早期 AP/PA 胸片，预测该次住院最终是否死亡。`study_time` 是唯一预测时点。默认窗口为入院后 48 小时内；患者可能有多次入选住院。更改 sampling 规则后，一次住院可以有多行，但所有行仍属于同一个患者 split。
 
 ## 输入表契约
@@ -22,6 +43,7 @@
 | sample_id | string，唯一，cxr_ + dicom_id | 样本追踪 |
 | subject_id | string，正整数文字 | 患者分组，禁止作为模型特征 |
 | hadm_id | string，正整数文字 | 唯一匹配住院 |
+| stay_id | string，正整数文字或空 | ICU 住院；`cohort.unit=admission` 时为空 |
 | study_id | string，正整数文字 | 影像研究 |
 | dicom_id | string，唯一 | 原始图像标识 |
 | image_path | string，根目录内相对 POSIX 路径 | 定位原图，禁止路径穿越 |
@@ -40,6 +62,10 @@
 | split | train / val / test | 患者级集合 |
 
 关键不变量：同一 subject_id、hadm_id、study_id、dicom_id、image_path 均不能横跨多个 split；一图一行；同次住院标签一致；`admittime <= study_time < min(已知 deathtime, dischtime)`。死于院内但缺失精确死亡时间时，只能检查早于出院，QA 会说明。
+
+`stay_id` 于 schema 1.0 之后加入，位置在 `hadm_id` 之后。`MimicCXRDataset` 同时接受
+含与不含该列的两种列表，因此在此之前冻结的运行目录仍可加载；按列名子集校验的下游
+（评测项目即是如此）不受影响。`dataset_spec.json` 的 `schema_version` 仍为 `1.0`。
 
 `split_assignments.csv` 包含 subject_id、patient_stratum、split。patient_stratum 是该患者入选记录的最大标签，仅用于分层，不是另一个预测目标。
 
