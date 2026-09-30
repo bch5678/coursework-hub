@@ -36,7 +36,7 @@ Encoder、prediction head、optimizer、schedule、loss、seed、checkpoint 选�
 | `fusion.embed_dim` | 768 | **768（不变）** |
 | image token 数 | 197（14×14 patch + CLS） | 50（7×7 grid + CLS） |
 
-两点必须理解：
+三点必须理解：
 
 1. **`embed_dim` 是投影上去的，不是 ResNet 的原生宽度。** `TrainingConfig.__post_init__`
    强制 `image_encoder.embed_dim == fusion.embed_dim`；若如实填 512，`fusion.embed_dim`
@@ -45,9 +45,42 @@ Encoder、prediction head、optimizer、schedule、loss、seed、checkpoint 选�
 2. **token 数差异消不掉。** CNN 的输出网格（7×7）与 ViT 的 patch 网格（14×14）是架构
    固有的，两臂的 fusion 序列长度必然不同（50 vs 197）。报告里要写明这一点，不能说
    "只差 backbone"。
+3. **冻结一个 ResNet 比冻结 ViT 多一步。** 见下节。
+
+### 冻结：`freeze=True` 对 ViT 和 ResNet 不是同一件事
 
 `image_encoder.freeze` 在 `metra_joint.json` 里是默认值（`false`）。要做冻结特征的对照
-（数据策略文档建议的设置），**两臂必须同时改**，否则比对的是冻结策略而不是 backbone。
+（数据策略文档建议的设置），**两臂必须同时改**。
+
+但只把两边的 `freeze` 都设成 `true` **还不够**，因为两种 backbone 的归一化层不同：
+
+| | ViT-B/16 | ResNet-18 |
+|---|---|---|
+| 归一化层 | LayerNorm（无 running stats） | **BatchNorm ×20** |
+| `requires_grad_(False)` 之后 | 真冻结 | 权重冻了，**归一化没冻** |
+
+BatchNorm 在训练模式下用**当前 batch** 的均值方差做归一化，并持续更新自己的 running
+估计 —— 这一步不受 `requires_grad` 影响。用本项目自己的 MIMIC-CXR 子集实测（40 张真实
+胸片、batch 8）：**40 步之后，"冻结的" backbone 输出的特征与预训练特征的余弦相似度只剩
+0.33**，running_mean 最大层变化 24.4。它已经悄悄变成另一个特征提取器了。
+
+如果放着不管，ViT 臂是真冻结、ResNet 臂是半冻结，两臂的 "frozen" 语义不一致，测出来的
+差异里就混进了 BN 自适应。所以 `TimmResNet` 覆写了 `train()`：
+
+```python
+def train(self, mode=True):
+    super().train(mode)
+    if self.frozen_backbone:
+        self.backbone.eval()      # 冻结的 backbone 永远不进 train 模式
+    return self
+```
+
+`tests/test_encoders.py::test_freeze_pins_batch_norm_statistics` 断言冻结时 running
+统计量逐位不变；`test_an_unfrozen_backbone_still_updates_batch_norm` 断言这个守卫只
+在 `freeze=True` 时生效。
+
+注意这**不是**在说 BN 自适应是错的 —— 它是一种公认的廉价域适应手段。但在"比较
+backbone"这个实验里，两臂必须同义，所以这里选择真冻结。
 
 ## 成员与接口
 

@@ -146,6 +146,11 @@ class TimmResNet(ImageEncoder):
       to ``embed_dim``. Without that projection ``fusion.embed_dim`` would have to
       drop to the backbone width, and the comparison against the ViT arm would
       then differ in fusion width as well as in backbone.
+
+    Freezing a ResNet needs one more step than freezing a ViT. A ViT is all
+    LayerNorm, so ``requires_grad_(False)`` really does pin it. A ResNet carries
+    BatchNorm, which in training mode normalises with the current batch's
+    statistics and keeps updating its running estimates; see ``train`` below.
     """
 
     def __init__(
@@ -177,7 +182,8 @@ class TimmResNet(ImageEncoder):
             in_chans=in_channels,
             drop_rate=dropout,
         )
-        if freeze:
+        self.frozen_backbone = bool(freeze)
+        if self.frozen_backbone:
             for parameter in self.backbone.parameters():
                 parameter.requires_grad_(False)
         with torch.no_grad():
@@ -204,8 +210,33 @@ class TimmResNet(ImageEncoder):
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(self.embed_dim)
 
+    def train(self, mode: bool = True) -> "TimmResNet":
+        """Keep a frozen backbone in eval mode whatever the trainer does.
+
+        `requires_grad_(False)` stops the weights changing, but it does not stop
+        BatchNorm: in training mode BN normalises with the current batch's
+        statistics *and* keeps updating its running estimates. Measured on 40
+        real chest radiographs from this project's own MIMIC-CXR subset, 40
+        training steps were enough to move the "frozen" backbone's features to a
+        cosine similarity of 0.33 against the pretrained ones -- it had quietly
+        become a different feature extractor, at 8 images per batch.
+
+        That matters for the arm comparison, not just for tidiness: a ViT is all
+        LayerNorm and therefore stays genuinely frozen, so without this override
+        the ViT and ResNet arms would not share the same meaning of "frozen" and
+        the measured difference would include BN adaptation as well as backbone.
+        """
+        super().train(mode)
+        if self.frozen_backbone:
+            self.backbone.eval()
+        return self
+
     def forward(self, image: torch.Tensor) -> torch.Tensor:
-        features = self.backbone.forward_features(image)
+        if self.frozen_backbone:
+            with torch.no_grad():
+                features = self.backbone.forward_features(image)
+        else:
+            features = self.backbone.forward_features(image)
         tokens = features.flatten(2).transpose(1, 2)
         tokens = self.project(tokens)
         cls = self.cls_token.expand(tokens.shape[0], -1, -1)

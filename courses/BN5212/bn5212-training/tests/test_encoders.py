@@ -128,3 +128,55 @@ def test_freeze_leaves_the_projection_trainable():
     assert encoder.cls_token.requires_grad
     if not isinstance(encoder.project, torch.nn.Identity):
         assert any(p.requires_grad for p in encoder.project.parameters())
+
+
+def _batch_norm_layers(module):
+    return [m for m in module.modules() if isinstance(m, torch.nn.BatchNorm2d)]
+
+
+def test_freeze_pins_batch_norm_statistics():
+    """A frozen backbone must not keep re-fitting BatchNorm to our data.
+
+    `requires_grad_(False)` alone does not achieve this: BatchNorm in training
+    mode normalises with the current batch statistics and updates its running
+    estimates regardless of gradients. On real chest radiographs the drift is
+    large enough to replace the pretrained features (cosine 0.33 after 40 steps
+    at 8 images per batch), and a ViT -- all LayerNorm -- would not drift at all,
+    so the two backbone arms would not be comparable.
+    """
+    encoder = _encoder(freeze=True)
+    layers = _batch_norm_layers(encoder.backbone)
+    assert layers, "resnet18 is expected to carry BatchNorm layers"
+    before = [(b.running_mean.clone(), b.running_var.clone()) for b in layers]
+
+    encoder.train()  # what trainer.train_one_epoch() does
+    assert encoder.training, "the encoder itself stays in training mode"
+    assert not encoder.backbone.training, "but the frozen backbone must not"
+    for _ in range(3):
+        encoder(torch.randn(4, 3, 64, 64))
+
+    for layer, (mean, var) in zip(layers, before):
+        assert torch.equal(layer.running_mean, mean)
+        assert torch.equal(layer.running_var, var)
+
+
+def test_an_unfrozen_backbone_still_updates_batch_norm():
+    """The guard must be tied to `freeze`, not applied unconditionally."""
+    encoder = _encoder(freeze=False)
+    layers = _batch_norm_layers(encoder.backbone)
+    before = [b.running_mean.clone() for b in layers]
+
+    encoder.train()
+    assert encoder.backbone.training
+    for _ in range(3):
+        encoder(torch.randn(4, 3, 64, 64))
+
+    assert any(not torch.equal(b.running_mean, m) for b, m in zip(layers, before))
+
+
+def test_eval_mode_is_untouched_by_the_freeze_guard():
+    """`eval()` must still propagate: only the frozen backbone is pinned."""
+    encoder = _encoder(freeze=True)
+    encoder.eval()
+    assert not encoder.training
+    assert not encoder.backbone.training
