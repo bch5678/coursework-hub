@@ -129,6 +129,89 @@ class TimmVisionTransformer(ImageEncoder):
         return self.backbone.forward_features(image)
 
 
+class TimmResNet(ImageEncoder):
+    """ImageNet-pretrained CNN backbone from timm, flattened to a token sequence.
+
+    A compare-the-backbone arm: the ViT experiments answer "what does a
+    transformer image encoder give us", this one gives the CNN answer under an
+    otherwise identical protocol.
+
+    Two adaptations are needed because a CNN is not a token model:
+
+    * timm's ResNet `forward_features` returns a ``[B, C, h, w]`` feature map,
+      while every fusion module consumes ``[B, N, D]``. The grid is flattened to
+      ``N = h*w`` tokens and a CLS token is prepended, matching the token
+      contract the ViT encoders already use.
+    * The backbone width (512 for resnet18/34, 2048 for resnet50) is projected up
+      to ``embed_dim``. Without that projection ``fusion.embed_dim`` would have to
+      drop to the backbone width, and the comparison against the ViT arm would
+      then differ in fusion width as well as in backbone.
+    """
+
+    def __init__(
+        self,
+        image_size: int,
+        in_channels: int,
+        model_name: str = "resnet18",
+        pretrained: bool = True,
+        embed_dim: int = 768,
+        dropout: float = 0.0,
+        freeze: bool = False,
+    ) -> None:
+        super().__init__()
+        try:
+            import timm
+        except ImportError as error:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "The timm_resnet encoder needs timm. Install it with "
+                "'pip install -e .[pretrained]'. Use image_encoder.name='simple_cnn' "
+                "for an offline run."
+            ) from error
+        # Deliberately no img_size: ResNets are fully convolutional, so the spatial
+        # grid is read off the probe below instead of being fixed at construction.
+        # (ResNet.__init__ would also reject the argument.)
+        self.backbone = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=in_channels,
+            drop_rate=dropout,
+        )
+        if freeze:
+            for parameter in self.backbone.parameters():
+                parameter.requires_grad_(False)
+        with torch.no_grad():
+            probe = self.backbone.forward_features(
+                torch.zeros(1, in_channels, image_size, image_size)
+            )
+        if probe.ndim != 4:
+            raise ValueError(
+                f"{model_name} produced {probe.ndim}D features; the timm_resnet "
+                "encoder needs a convolutional feature map [B, C, H, W]. Use "
+                "image_encoder.name='timm_vit' for a ViT backbone."
+            )
+        backbone_dim = int(probe.shape[1])
+        self.num_patches = int(probe.shape[2] * probe.shape[3])
+        self.num_tokens = self.num_patches + 1
+        self.embed_dim = int(embed_dim)
+        self.project = (
+            nn.Identity()
+            if backbone_dim == self.embed_dim
+            else nn.Linear(backbone_dim, self.embed_dim)
+        )
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+        nn.init.trunc_normal_(self.cls_token, std=0.02)
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(self.embed_dim)
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        features = self.backbone.forward_features(image)
+        tokens = features.flatten(2).transpose(1, 2)
+        tokens = self.project(tokens)
+        cls = self.cls_token.expand(tokens.shape[0], -1, -1)
+        return self.norm(self.dropout(torch.cat([cls, tokens], dim=1)))
+
+
 class SimpleCNN(ImageEncoder):
     """Small conv stack, used as the cheap CXR reference and for fast tests."""
 
@@ -193,6 +276,21 @@ def build_timm_vit(
         in_channels,
         model_name=cfg.timm_model,
         pretrained=cfg.pretrained,
+        dropout=cfg.dropout,
+        freeze=cfg.freeze,
+    )
+
+
+@IMAGE_ENCODERS.register("timm_resnet")
+def build_timm_resnet(
+    cfg: ImageEncoderConfig, *, image_size: int, in_channels: int
+) -> TimmResNet:
+    return TimmResNet(
+        image_size,
+        in_channels,
+        model_name=cfg.timm_model,
+        pretrained=cfg.pretrained,
+        embed_dim=cfg.embed_dim,
         dropout=cfg.dropout,
         freeze=cfg.freeze,
     )

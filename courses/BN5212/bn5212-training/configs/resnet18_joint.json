@@ -1,0 +1,59 @@
+{
+  "experiment": "resnet18_joint",
+  "notes": "Backbone-comparison arm. Every field below is copied verbatim from metra_joint.json except image_encoder, so the difference between the two runs is the image backbone and nothing else. fusion.embed_dim stays 768: the ResNet encoder projects its 512-wide feature map up to 768 (see encoders.TimmResNet), otherwise fusion.embed_dim would be forced down to the backbone width and the comparison would vary in fusion width too. Residual difference that cannot be removed: 50 image tokens (7x7 grid + CLS) versus 197 for ViT-B/16 at 224. Keep image_encoder.freeze in step with the ViT arm; the team's data strategy calls for frozen backbones, but metra_joint.json currently leaves freeze at its default (false).",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "/srv/derived/bn5212/mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "/srv/derived/bn5212/clinical_features.csv.gz",
+    "clinical_timesteps": 48,
+    "batch_size": 8,
+    "num_workers": 4
+  },
+  "image_encoder": {
+    "name": "timm_resnet",
+    "timm_model": "resnet18",
+    "pretrained": true,
+    "embed_dim": 768,
+    "dropout": 0.1
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 768,
+    "missing_indicator": true,
+    "dropout": 0.1
+  },
+  "fusion": {
+    "name": "joint_self_attention",
+    "embed_dim": 768,
+    "depth": 2,
+    "num_heads": 12,
+    "mlp_ratio": 4.0,
+    "dropout": 0.1,
+    "pooling": "cls"
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.1
+  },
+  "optim": {
+    "epochs": 200,
+    "lr": 5e-06,
+    "weight_decay": 0.05,
+    "warmup_epochs": 5,
+    "min_lr": 1e-07,
+    "early_stopping_patience": 20,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "image_dropout_prob": 0.3,
+    "amp": true,
+    "grad_accumulation_steps": 2
+  },
+  "seed": 5212,
+  "selection_metric": "auroc",
+  "device": "auto"
+}

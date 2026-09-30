@@ -19,9 +19,35 @@ CXR-only 两组单模态基线。目标是让项目计划里的四个实验只�
 | 简单融合参照 | `configs/concat_fusion.json` | clinical + cxr | `concat_mlp` |
 | 3. MeTra baseline | `configs/metra_joint.json` | clinical + cxr | `joint_self_attention` |
 | 4. 提出的方法 | `configs/cross_attention.json` | clinical + cxr | `cross_attention` |
+| Backbone 对照 | `configs/resnet18_joint.json` | clinical + cxr | `joint_self_attention` |
 
 Encoder、prediction head、optimizer、schedule、loss、seed、checkpoint 选择规则、预测导出
 在五个实验之间完全一致。
+
+### Backbone 对照臂（CNN vs transformer）
+
+`configs/resnet18_joint.json` 与 `metra_joint.json` **逐字段相同，只有 image_encoder 不同**：
+
+| | `metra_joint` | `resnet18_joint` |
+|---|---|---|
+| `image_encoder.name` | `timm_vit` | `timm_resnet` |
+| backbone | `vit_base_patch16_224` | `resnet18` |
+| `image_encoder.embed_dim` | 768（backbone 原生宽度） | 768（**512 投影上来的**） |
+| `fusion.embed_dim` | 768 | **768（不变）** |
+| image token 数 | 197（14×14 patch + CLS） | 50（7×7 grid + CLS） |
+
+两点必须理解：
+
+1. **`embed_dim` 是投影上去的，不是 ResNet 的原生宽度。** `TrainingConfig.__post_init__`
+   强制 `image_encoder.embed_dim == fusion.embed_dim`；若如实填 512，`fusion.embed_dim`
+   就得跟着降到 512，那次对比里就同时混进了 backbone 和 fusion 宽度两个变量。
+   `TimmResNet` 因此内置 `nn.Linear(512, 768)`，把 fusion 钉在 768。
+2. **token 数差异消不掉。** CNN 的输出网格（7×7）与 ViT 的 patch 网格（14×14）是架构
+   固有的，两臂的 fusion 序列长度必然不同（50 vs 197）。报告里要写明这一点，不能说
+   "只差 backbone"。
+
+`image_encoder.freeze` 在 `metra_joint.json` 里是默认值（`false`）。要做冻结特征的对照
+（数据策略文档建议的设置），**两臂必须同时改**，否则比对的是冻结策略而不是 backbone。
 
 ## 成员与接口
 
