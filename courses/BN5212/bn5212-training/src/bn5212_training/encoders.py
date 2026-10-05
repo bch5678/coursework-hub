@@ -154,6 +154,97 @@ class TimmVisionTransformer(ImageEncoder):
         return self.project(self.backbone.forward_features(image))
 
 
+
+class TimmResNet(ImageEncoder):
+    """ImageNet-pretrained ResNet from timm, flattened to a token sequence.
+
+    The plain-ImageNet CNN arm, kept deliberately close to `XRayVisionDenseNet`:
+    same ``[B, C, h, w]`` -> ``[B, h*w, D]`` flattening with a leading summary
+    token, same `project_to` handling, same frozen-BatchNorm guard. It exists
+    because `TimmVisionTransformer` rejects a CNN with "Use the timm_cnn encoder
+    for a convolutional backbone", and no such encoder was registered.
+
+    Two adaptations are needed because a CNN is not a token model:
+
+    * timm's ResNet `forward_features` returns a ``[B, C, h, w]`` feature map
+      while every fusion module consumes ``[B, N, D]``; the grid is flattened.
+    * the backbone width (512 for resnet18/34, 2048 for resnet50) is projected to
+      `project_to` when given, so a CNN and a ViT can meet one fusion width
+      without either dictating it.
+    """
+
+    def __init__(
+        self,
+        image_size: int,
+        in_channels: int,
+        model_name: str = "resnet18",
+        pretrained: bool = True,
+        *,
+        project_to: int | None = None,
+        dropout: float = 0.0,
+        freeze: bool = False,
+    ) -> None:
+        super().__init__()
+        try:
+            import timm
+        except ImportError as error:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "The timm_resnet encoder needs timm. Install it with "
+                "'pip install -e .[pretrained]'. Use image_encoder.name='vit' "
+                "for an offline run."
+            ) from error
+        # No img_size: ResNets are fully convolutional, so the grid is read off the
+        # probe below. Passing it would also make timm reject the model, since
+        # ResNet.__init__ has no such argument.
+        self.backbone = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            in_chans=in_channels,
+            drop_rate=dropout,
+        )
+        self._frozen = bool(freeze)
+        if self._frozen:
+            for parameter in self.backbone.parameters():
+                parameter.requires_grad_(False)
+
+        with torch.no_grad():
+            probe = self.backbone.forward_features(
+                torch.zeros(1, in_channels, image_size, image_size)
+            )
+        if probe.ndim != 4:
+            raise ValueError(
+                f"{model_name} produced {probe.ndim}D features; the timm_resnet "
+                "encoder needs a convolutional feature map [B, C, H, W]. Use "
+                "image_encoder.name='timm_vit' for a ViT backbone."
+            )
+        width = int(probe.shape[1])
+        self.grid_h, self.grid_w = int(probe.shape[2]), int(probe.shape[3])
+        # One token per spatial position plus a summary token, so pooling="cls"
+        # behaves the same as it does for the ViT encoders.
+        self.num_tokens = self.grid_h * self.grid_w + 1
+        self.project = nn.Linear(width, project_to) if project_to else nn.Identity()
+        self.embed_dim = int(project_to or width)
+        self.dropout = nn.Dropout(dropout)
+        self.norm = nn.LayerNorm(self.embed_dim)
+
+    def train(self, mode: bool = True) -> "TimmResNet":
+        super().train(mode)
+        # requires_grad=False does not freeze BatchNorm: in training mode it
+        # normalises with batch statistics and keeps moving its running averages,
+        # so a frozen ResNet would silently become a different feature extractor
+        # while a frozen ViT (all LayerNorm) would not.
+        if self._frozen:
+            self.backbone.eval()
+        return self
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        features = self.backbone.forward_features(image)
+        tokens = self.project(features.flatten(2).transpose(1, 2))
+        summary = tokens.mean(dim=1, keepdim=True)
+        return self.norm(self.dropout(torch.cat([summary, tokens], dim=1)))
+
+
 @IMAGE_ENCODERS.register("vit")
 def build_vit(cfg: ImageEncoderConfig, *, image_size: int, in_channels: int, **_: object) -> VisionTransformer:
     return VisionTransformer(
@@ -496,6 +587,21 @@ def build_xrv_densenet(
         weights=cfg.xrv_weights,
         mean=mean,
         std=std,
+        project_to=cfg.project_to,
+        dropout=cfg.dropout,
+        freeze=cfg.freeze,
+    )
+
+
+@IMAGE_ENCODERS.register("timm_resnet")
+def build_timm_resnet(
+    cfg: ImageEncoderConfig, *, image_size: int, in_channels: int, **_: object
+) -> TimmResNet:
+    return TimmResNet(
+        image_size,
+        in_channels,
+        model_name=cfg.timm_model,
+        pretrained=cfg.pretrained,
         project_to=cfg.project_to,
         dropout=cfg.dropout,
         freeze=cfg.freeze,
