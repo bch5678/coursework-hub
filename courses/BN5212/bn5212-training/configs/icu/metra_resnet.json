@@ -1,0 +1,69 @@
+{
+  "experiment": "metra_resnet",
+  "notes": "Backbone comparison against metra_joint: same ICU cohort, same fusion, same optimiser, same augmentation, same cache. The only difference is image_encoder, which swaps the ImageNet ViT-B/16 for an ImageNet ResNet-18 (timm_resnet). Both project to the same 64-wide fusion, so the two runs are also parameter-matched; only the frozen features differ. Residual difference that cannot be removed: 50 image tokens (7x7 grid + summary) against 197 for ViT-B/16 at 224, which is inherent to a CNN grid versus a patch grid. Freezing here also pins BatchNorm to eval (TimmResNet.train), so this arm uses ImageNet normalisation statistics exactly like the ViT arm.",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "data/runs/icu_mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "data/clinical_features.csv",
+    "clinical_timesteps": 48,
+    "batch_size": 16,
+    "num_workers": 0,
+    "image_cache": "data/cache/icu_images.json"
+  },
+  "fusion": {
+    "name": "joint_self_attention",
+    "embed_dim": 64,
+    "depth": 2,
+    "num_heads": 4,
+    "dropout": 0.2,
+    "pooling": "cls"
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.2
+  },
+  "optim": {
+    "epochs": 100,
+    "lr": 0.001,
+    "weight_decay": 0.1,
+    "warmup_epochs": 5,
+    "min_lr": 1e-06,
+    "early_stopping_patience": 15,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "grad_accumulation_steps": 1,
+    "amp": true
+  },
+  "seed": 5212,
+  "device": "auto",
+  "selection_metric": "loss",
+  "image_encoder": {
+    "name": "timm_resnet",
+    "timm_model": "resnet18",
+    "pretrained": true,
+    "embed_dim": 512,
+    "project_to": 64,
+    "freeze": true,
+    "dropout": 0.1
+  },
+  "augmentation": {
+    "enabled": true,
+    "crop_scale_min": 0.85,
+    "rotation_degrees": 10.0,
+    "brightness": 0.15,
+    "contrast": 0.15,
+    "horizontal_flip": false
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 64,
+    "hidden_dim": 64,
+    "missing_indicator": true,
+    "dropout": 0.3
+  }
+}

@@ -6,6 +6,8 @@ change every clinical result without failing anything else.
 """
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 import torch
 
@@ -260,7 +262,11 @@ def test_frozen_parameters_are_not_handed_to_the_optimiser():
 
 # --- chest-radiograph pretrained backbone ---------------------------------
 
-xrv = pytest.importorskip("torchxrayvision", reason="torchxrayvision is optional")
+# torchxrayvision is optional. Its tests skip individually rather than through a
+# module-level `importorskip`, which would take every other test in this file
+# with it -- including the ones defined above it -- on a machine without it.
+_HAS_XRV = importlib.util.find_spec("torchxrayvision") is not None
+requires_xrv = pytest.mark.skipif(not _HAS_XRV, reason="torchxrayvision is optional")
 
 
 def _xrv_encoder(**kwargs):
@@ -270,6 +276,7 @@ def _xrv_encoder(**kwargs):
     return XRayVisionDenseNet(224, 1, **{**defaults, **kwargs})
 
 
+@requires_xrv
 def test_weights_trained_on_mimic_are_refused():
     """Those checkpoints saw MIMIC-CXR, which overlaps our held-out images."""
     from bn5212_training.encoders import XRayVisionDenseNet
@@ -279,6 +286,7 @@ def test_weights_trained_on_mimic_are_refused():
             XRayVisionDenseNet(224, 1, weights=weights)
 
 
+@requires_xrv
 def test_pipeline_normalisation_is_undone_before_the_backbone():
     """These weights expect roughly [-1024, 1024]; ours arrive standardised."""
     encoder = _xrv_encoder(mean=(0.485,), std=(0.229,))
@@ -291,6 +299,7 @@ def test_pipeline_normalisation_is_undone_before_the_backbone():
     assert encoder._to_xrv_range(zero_pixel).min().item() == pytest.approx(-1024.0, abs=1.0)
 
 
+@requires_xrv
 def test_three_repeated_channels_collapse_to_one():
     encoder = _xrv_encoder(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
     image = torch.rand(2, 3, 224, 224)
@@ -299,6 +308,7 @@ def test_three_repeated_channels_collapse_to_one():
     assert encoder._to_xrv_range(image).shape == (2, 1, 224, 224)
 
 
+@requires_xrv
 def test_spatial_map_becomes_tokens_with_a_cls():
     encoder = _xrv_encoder()
     tokens = encoder(torch.zeros(2, 1, 224, 224))
@@ -306,6 +316,7 @@ def test_spatial_map_becomes_tokens_with_a_cls():
     assert encoder.num_tokens == encoder.grid * encoder.grid + 1
 
 
+@requires_xrv
 def test_the_leading_token_depends_on_the_image():
     """A learned constant here would make pooling="cls" blind to the input.
 
@@ -330,12 +341,14 @@ def test_the_leading_token_depends_on_the_image():
     assert not torch.allclose(leading[2], leading[3], atol=1e-3)
 
 
+@requires_xrv
 def test_the_backbone_is_frozen_but_the_projection_is_not():
     encoder = _xrv_encoder(freeze=True)
     assert not any(p.requires_grad for p in encoder.backbone.parameters())
     assert all(p.requires_grad for p in encoder.project.parameters())
 
 
+@requires_xrv
 def test_a_frozen_backbone_stays_in_inference_mode_during_training():
     """requires_grad=False alone leaves BatchNorm updating its running averages.
 
@@ -432,3 +445,153 @@ def test_variable_projection_keeps_the_token_contract():
     moved, _ = encoder(changed * mask, mask)
     assert not torch.allclose(moved[:, 0], tokens[:, 0])
     assert torch.allclose(moved[:, 1:], tokens[:, 1:])
+
+
+# --- timm ResNet backbone --------------------------------------------------
+
+def _resnet(image_size=64, **overrides):
+    """Small inputs on purpose: these assert wiring, not accuracy."""
+    from bn5212_training.encoders import TimmResNet
+
+    kwargs = {
+        "in_channels": 3,
+        "model_name": "resnet18",
+        "pretrained": False,  # never reach the network from a test
+        "image_size": image_size,
+    }
+    kwargs.update(overrides)
+    return TimmResNet(**kwargs)
+
+
+def test_timm_resnet_is_registered():
+    assert "timm_resnet" in IMAGE_ENCODERS
+
+
+def test_timm_resnet_builds_from_the_config_dataclass():
+    from bn5212_training.encoders import TimmResNet
+
+    cfg = ImageEncoderConfig(name="timm_resnet", timm_model="resnet18", project_to=32)
+    encoder = IMAGE_ENCODERS.build(cfg.name, cfg, image_size=64, in_channels=3)
+    assert isinstance(encoder, TimmResNet)
+    assert encoder.embed_dim == 32
+
+
+def test_timm_resnet_emits_the_token_contract():
+    encoder = _resnet(project_to=48)
+    encoder.eval()
+    with torch.no_grad():
+        tokens = encoder(torch.zeros(2, 3, 64, 64))
+    assert tokens.ndim == 3, "fusion modules need [B, N, D], not a feature map"
+    assert tokens.shape == (2, encoder.num_tokens, 48)
+    assert torch.isfinite(tokens).all()
+
+
+def test_timm_resnet_flattens_the_feature_grid():
+    small = _resnet(image_size=64)
+    assert (small.grid_h, small.grid_w) == (2, 2), "64px resnet18 downsamples 32x"
+    assert small.num_tokens == small.grid_h * small.grid_w + 1
+
+    # The 224 setting the ICU configs use.
+    reference = _resnet(image_size=224)
+    assert (reference.grid_h, reference.grid_w) == (7, 7)
+    assert reference.num_tokens == 50
+
+
+def test_timm_resnet_projects_to_the_requested_width():
+    """project_to is what lets a CNN and a ViT meet the same fusion width."""
+    encoder = _resnet(project_to=32)
+    assert encoder.embed_dim == 32
+    assert not isinstance(encoder.project, torch.nn.Identity)
+
+    # resnet50 ends on 2048 channels; the projection must not assume 512.
+    wide = _resnet(model_name="resnet50", project_to=32)
+    wide.eval()
+    with torch.no_grad():
+        assert wide(torch.zeros(1, 3, 64, 64)).shape == (1, wide.num_tokens, 32)
+
+
+def test_timm_resnet_without_a_projection_keeps_the_backbone_width():
+    encoder = _resnet()
+    assert isinstance(encoder.project, torch.nn.Identity)
+    assert encoder.embed_dim == 512  # resnet18's final width
+
+
+def test_timm_resnet_rejects_a_vit_model():
+    """A ViT returns [B, N, D] with no spatial axis, so flattening it is wrong.
+
+    image_size must match the ViT's own patch grid, otherwise timm's patch_embed
+    asserts first and this guard never runs.
+    """
+    with pytest.raises(ValueError, match="convolutional feature map"):
+        _resnet(image_size=224, model_name="vit_base_patch16_224")
+
+
+def test_resnet_tokens_drive_the_joint_self_attention_fusion():
+    """End to end through the fusion the arm actually runs."""
+    from bn5212_training.config import FusionConfig
+    from bn5212_training.fusion import build_fusion
+
+    width = 32
+    encoder = _resnet(project_to=width)
+    encoder.eval()
+    fusion = build_fusion(
+        FusionConfig(name="joint_self_attention", embed_dim=width, depth=1, num_heads=2),
+        num_image_tokens=encoder.num_tokens,
+        num_clinical_tokens=3,
+    )
+    with torch.no_grad():
+        out = fusion(
+            image_tokens=encoder(torch.zeros(2, 3, 64, 64)),
+            clinical_tokens=torch.randn(2, 3, width),
+            clinical_mask=torch.ones(2, 3, dtype=torch.bool),
+        )
+    assert out.shape == (2, width)
+    assert torch.isfinite(out).all()
+
+
+def test_a_frozen_resnet_backbone_stays_in_inference_mode_during_training():
+    """requires_grad=False alone does not stop BatchNorm from re-fitting.
+
+    On real chest radiographs the drift is large enough to replace the pretrained
+    features, and a frozen ViT (all LayerNorm) would not drift at all, so the two
+    backbone arms would not share the same meaning of "frozen".
+    """
+    encoder = _resnet(freeze=True, project_to=32)
+    batches = [
+        m for m in encoder.backbone.modules() if isinstance(m, torch.nn.BatchNorm2d)
+    ]
+    assert batches, "resnet18 is expected to carry BatchNorm layers"
+    before = [(b.running_mean.clone(), b.running_var.clone()) for b in batches]
+
+    encoder.train()  # what trainer.train_one_epoch() does
+    assert encoder.training, "the encoder itself stays in training mode"
+    assert not encoder.backbone.training, "but the frozen backbone must not"
+    for _ in range(3):
+        encoder(torch.randn(2, 3, 64, 64))
+
+    for layer, (mean, var) in zip(batches, before):
+        assert torch.equal(layer.running_mean, mean)
+        assert torch.equal(layer.running_var, var)
+
+
+def test_an_unfrozen_resnet_backbone_still_updates_batch_norm():
+    """The guard must be tied to freeze, not applied unconditionally."""
+    encoder = _resnet(freeze=False)
+    batches = [
+        m for m in encoder.backbone.modules() if isinstance(m, torch.nn.BatchNorm2d)
+    ]
+    before = [b.running_mean.clone() for b in batches]
+
+    encoder.train()
+    assert encoder.backbone.training
+    for _ in range(3):
+        encoder(torch.randn(2, 3, 64, 64))
+
+    assert any(not torch.equal(b.running_mean, m) for b, m in zip(batches, before))
+
+
+def test_a_frozen_resnet_keeps_its_projection_trainable():
+    """Freezing the backbone must not freeze the adapter added on top of it."""
+    encoder = _resnet(freeze=True, project_to=32)
+    assert not any(p.requires_grad for p in encoder.backbone.parameters())
+    assert any(p.requires_grad for p in encoder.project.parameters())
