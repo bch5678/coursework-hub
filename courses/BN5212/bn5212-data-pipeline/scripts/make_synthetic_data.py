@@ -37,9 +37,10 @@ def make_synthetic(root, image_format="png", n_subjects=36):
     if root.exists() and any(root.iterdir()):
         raise FileExistsError("Synthetic fixture destination must be empty")
     hosp = root / "raw" / "mimiciv" / "hosp"
+    icu = root / "raw" / "mimiciv" / "icu"
     images = root / "raw" / "cxr"
-    hosp.mkdir(parents=True); images.mkdir(parents=True)
-    patients, admissions, metadata = [], [], []
+    hosp.mkdir(parents=True); icu.mkdir(parents=True); images.mkdir(parents=True)
+    patients, admissions, metadata, icustays = [], [], [], []
 
     def image_row(subject, study, dicom, stamp, view="AP", exists=True, corrupt=False):
         ext = ".dcm" if image_format == "dicom" else ".png"
@@ -70,6 +71,9 @@ def make_synthetic(root, image_format="png", n_subjects=36):
                 flag = ""  # No negative-label imputation.
             if i == 2 and visit == 1:
                 death = admission + timedelta(hours=60)  # Contradiction with flag=0.
+            icustays.append({"subject_id": str(subject), "hadm_id": str(hadm), "stay_id": str(60000000 + i * 10 + visit),
+                             "intime": (admission + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"),
+                             "outtime": (admission + timedelta(hours=90)).strftime("%Y-%m-%d %H:%M:%S")})
             admissions.append({"subject_id": str(subject), "hadm_id": str(hadm), "admittime": admission.strftime("%Y-%m-%d %H:%M:%S"),
                                "dischtime": (admission + timedelta(hours=96)).strftime("%Y-%m-%d %H:%M:%S"),
                                "deathtime": death.strftime("%Y-%m-%d %H:%M:%S") if death else "", "hospital_expire_flag": flag,
@@ -88,6 +92,7 @@ def make_synthetic(root, image_format="png", n_subjects=36):
     admissions.append(dict(admissions[0]))
     pd.DataFrame(patients).to_csv(hosp / "patients.csv.gz", index=False)
     pd.DataFrame(admissions).to_csv(hosp / "admissions.csv.gz", index=False)
+    pd.DataFrame(icustays).to_csv(icu / "icustays.csv.gz", index=False)
     metadata_path = root / "metadata.csv.gz"
     pd.DataFrame(metadata).to_csv(metadata_path, index=False)
     default_path = Path(__file__).resolve().parents[1] / "config" / "default.json"

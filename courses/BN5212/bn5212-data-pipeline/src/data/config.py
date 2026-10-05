@@ -38,8 +38,17 @@ def validate_config(cfg: dict) -> None:
         "loader": {"image_size", "channels", "batch_size", "num_workers", "mean", "std"},
         "audit": {"hash_images"},
     }
+    # Keys added after schema 1.0. They are optional so that existing configs and
+    # frozen runs stay valid; unknown keys are still rejected.
+    optional = {
+        "cohort": {"unit"},
+        "alignment": {"icu_observation_hours"},
+    }
     for section, required in keys.items():
-        if set(cfg[section]) != required:
+        present = set(cfg[section])
+        missing = required - present
+        unknown = present - required - optional.get(section, set())
+        if missing or unknown:
             raise ValueError(f"Missing/unknown keys in {section}; expected {sorted(required)}")
     if cfg["dataset_versions"] != {"mimic_iv": "3.1", "mimic_cxr": "2.1.0"}:
         raise ValueError("This project targets MIMIC-IV 3.1 and MIMIC-CXR 2.1.0")
@@ -54,8 +63,23 @@ def validate_config(cfg: dict) -> None:
         raise ValueError("Split ratios must be positive and sum to 1")
     if not isinstance(split["seed"], int) or split["seed"] < 0:
         raise ValueError("split.seed must be a nonnegative integer")
-    if cfg["cohort"]["selection"] not in {"first_per_admission", "first_per_study", "all_images"}:
+    if cfg["cohort"]["selection"] not in {"first_per_admission", "first_per_study", "all_images", "first_per_icu_stay"}:
         raise ValueError("Unknown cohort.selection")
+    # The study unit. "admission" keeps the original behaviour: one row per
+    # hospital admission, predicted at the radiograph. "icu_stay" follows MeTra:
+    # the window starts at ICU intime, the patient must survive it, and the
+    # radiograph is taken inside that window.
+    unit = cfg["cohort"].get("unit", "admission")
+    if unit not in {"admission", "icu_stay"}:
+        raise ValueError("cohort.unit must be admission or icu_stay")
+    if unit == "icu_stay":
+        hours = cfg["alignment"].get("icu_observation_hours", 48)
+        if not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours <= 0:
+            raise ValueError("alignment.icu_observation_hours must be a positive number")
+        if cfg["cohort"]["selection"] not in {"first_per_icu_stay", "all_images"}:
+            raise ValueError("cohort.unit=icu_stay requires selection first_per_icu_stay or all_images")
+    elif cfg["cohort"]["selection"] == "first_per_icu_stay":
+        raise ValueError("selection=first_per_icu_stay requires cohort.unit=icu_stay")
     if not isinstance(cfg["cohort"]["views"], list) or not cfg["cohort"]["views"]:
         raise ValueError("cohort.views must be a nonempty list")
     if cfg["cohort"]["min_age"] < 0:

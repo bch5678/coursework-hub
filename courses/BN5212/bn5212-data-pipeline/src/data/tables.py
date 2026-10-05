@@ -36,3 +36,24 @@ def load_hospital_tables(cfg, audit):
                            & a.anchor_age.mod(1).eq(0) & a.anchor_year.mod(1).eq(0)
                            & a.age_at_admission.ge(cfg["cohort"]["min_age"]))
     return a, [admissions_path, patients_path]
+
+
+def load_icu_stays(cfg, audit):
+    """ICU stays for the icu_stay cohort unit.
+
+    Non-consecutive ICU stays keep separate stay_id values in MIMIC-IV, and the
+    documentation leaves it to the investigator to decide how to treat them, so
+    every stay is kept here and the selection rule downstream decides.
+    """
+    root = Path(cfg["paths"]["mimic_iv_root"])
+    path = table_path(root, "icustays", modules=("icu",))
+    required = ["subject_id", "hadm_id", "stay_id", "intime", "outtime"]
+    stays = read_csv(path, required)[required]
+    stays = audit.filter(stays, valid_ids(stays, ["subject_id", "hadm_id", "stay_id"]), "valid_icu_stay_ids", "icu_stays")
+    before = len(stays)
+    stays = deduplicate(stays, ["stay_id"], "icu stay")
+    audit.flow.append({"stage": "deduplicate_icu_stays", "unit": "icu_stays", "before": before, "after": len(stays), "excluded": before - len(stays)})
+    for key in ["intime", "outtime"]:
+        stays[key] = pd.to_datetime(stays[key], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    stays = audit.filter(stays, stays.intime.notna(), "valid_icu_intime", "icu_stays")
+    return stays, [path]

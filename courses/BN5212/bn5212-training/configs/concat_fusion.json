@@ -1,0 +1,56 @@
+{
+  "experiment": "concat_fusion",
+  "notes": "Simple multimodal fusion reference: pool each modality, concatenate, one MLP. No token-level interaction at all. If cross-attention cannot beat this, the interaction mechanism is not what is helping. Sized for an 8 GB GPU: micro-batch 8 x accumulation 2 = effective batch 16. On a larger card raise data.batch_size and drop grad_accumulation_steps to 1.",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "/srv/derived/bn5212/mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "/srv/derived/bn5212/clinical_features.csv.gz",
+    "clinical_timesteps": 48,
+    "batch_size": 8,
+    "num_workers": 4
+  },
+  "image_encoder": {
+    "name": "timm_vit",
+    "timm_model": "vit_base_patch16_224",
+    "pretrained": true,
+    "embed_dim": 768,
+    "patch_size": 16,
+    "dropout": 0.1
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 768,
+    "missing_indicator": true,
+    "dropout": 0.1
+  },
+  "fusion": {
+    "name": "concat_mlp",
+    "embed_dim": 768,
+    "dropout": 0.1
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.1
+  },
+  "optim": {
+    "epochs": 200,
+    "lr": 5e-06,
+    "weight_decay": 0.05,
+    "warmup_epochs": 5,
+    "min_lr": 1e-07,
+    "early_stopping_patience": 20,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "image_dropout_prob": 0.3,
+    "amp": true,
+    "grad_accumulation_steps": 2
+  },
+  "seed": 5212,
+  "selection_metric": "auroc",
+  "device": "auto"
+}

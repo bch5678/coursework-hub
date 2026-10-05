@@ -1,0 +1,51 @@
+{
+  "experiment": "clinical_only",
+  "notes": "Experiment 1. ICU cohort, n=198, 31 events; fusion width 64. Clinical encoder variable_projection, pretrained on 12,121 ICU stays of patients outside the study cohort (external validation AUROC 0.848, chosen there over linear_projection at 0.791) and frozen, as the image backbone is.",
+  "modalities": [
+    "clinical"
+  ],
+  "data": {
+    "run_dir": "data/runs/icu_mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "data/clinical_features.csv",
+    "clinical_timesteps": 48,
+    "batch_size": 16,
+    "num_workers": 0,
+    "image_cache": "data/cache/icu_images.json"
+  },
+  "fusion": {
+    "name": "clinical_only",
+    "embed_dim": 64,
+    "pooling": "mean",
+    "dropout": 0.2
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.2
+  },
+  "optim": {
+    "epochs": 100,
+    "lr": 0.001,
+    "weight_decay": 0.1,
+    "warmup_epochs": 5,
+    "min_lr": 1e-06,
+    "early_stopping_patience": 15,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "grad_accumulation_steps": 1,
+    "amp": true
+  },
+  "seed": 5212,
+  "device": "auto",
+  "selection_metric": "loss",
+  "clinical_encoder": {
+    "name": "variable_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 64,
+    "hidden_dim": 64,
+    "missing_indicator": true,
+    "dropout": 0.3,
+    "pretrained": "data/pretrain/clinical_v1/variable_projection.pt",
+    "freeze": true
+  }
+}

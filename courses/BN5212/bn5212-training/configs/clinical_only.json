@@ -1,0 +1,46 @@
+{
+  "experiment": "clinical_only",
+  "notes": "Experiment 1. Clinical time series only. Images are not even decoded. Sized for an 8 GB GPU: micro-batch 64 x accumulation 1 = effective batch 64. On a larger card raise data.batch_size and drop grad_accumulation_steps to 1.",
+  "modalities": [
+    "clinical"
+  ],
+  "data": {
+    "run_dir": "/srv/derived/bn5212/mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "/srv/derived/bn5212/clinical_features.csv.gz",
+    "clinical_timesteps": 48,
+    "batch_size": 64,
+    "num_workers": 4
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 256,
+    "missing_indicator": true,
+    "dropout": 0.1
+  },
+  "fusion": {
+    "name": "clinical_only",
+    "embed_dim": 256,
+    "pooling": "mean",
+    "dropout": 0.1
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.1
+  },
+  "optim": {
+    "epochs": 100,
+    "lr": 0.0003,
+    "weight_decay": 0.05,
+    "warmup_epochs": 5,
+    "min_lr": 1e-06,
+    "early_stopping_patience": 15,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "grad_accumulation_steps": 1
+  },
+  "seed": 5212,
+  "selection_metric": "auroc",
+  "device": "auto"
+}

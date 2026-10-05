@@ -1,0 +1,55 @@
+{
+  "experiment": "cross_attention",
+  "notes": "LOCAL SYNTHETIC FIXTURE ONLY - not a benchmark result. Proposed explicit cross-attention, Q=C K=V=I.",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "../bn5212-data-pipeline/demo/png/processed",
+    "clinical_provider": "synthetic",
+    "clinical_timesteps": 12,
+    "batch_size": 8
+  },
+  "fusion": {
+    "name": "cross_attention",
+    "embed_dim": 96,
+    "depth": 2,
+    "num_heads": 3,
+    "dropout": 0.1,
+    "direction": "clinical_to_image"
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.1
+  },
+  "optim": {
+    "epochs": 15,
+    "lr": 0.001,
+    "weight_decay": 0.05,
+    "warmup_epochs": 1,
+    "min_lr": 1e-05,
+    "early_stopping_patience": 8,
+    "positive_class_weight": "auto",
+    "use_sample_weight": true,
+    "amp": false
+  },
+  "seed": 5212,
+  "device": "cpu",
+  "selection_metric": "auroc",
+  "image_encoder": {
+    "name": "vit",
+    "embed_dim": 96,
+    "patch_size": 8,
+    "depth": 2,
+    "num_heads": 3,
+    "dropout": 0.1
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 96,
+    "missing_indicator": true,
+    "dropout": 0.1
+  }
+}

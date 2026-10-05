@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from .cohort import align_images, select_images
+from .cohort import align_images, restrict_to_icu_stays, select_images
 from .config import load_config
 from .dataset import INDEX_COLUMNS
 from .io import Audit, safe_path, sha256, write_json
 from .metadata import load_cxr
 from .splits import assign_splits, validate_index
-from .tables import load_hospital_tables
+from .tables import load_hospital_tables, load_icu_stays
 
 
 def build(config_path):
@@ -56,7 +56,16 @@ def build(config_path):
             inventory.append({"image_path": relative, "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns})
         pd.DataFrame(inventory, columns=["image_path", "bytes", "mtime_ns"]).to_csv(staging / "input_image_inventory.csv", index=False, lineterminator="\n")
         source_files += metadata_files
-        frame = select_images(align_images(cxr, admissions, cfg, audit), cfg, audit)
+        aligned = align_images(cxr, admissions, cfg, audit)
+        unit = cfg["cohort"].get("unit", "admission")
+        if unit == "icu_stay":
+            stays, icu_files = load_icu_stays(cfg, audit)
+            source_files += icu_files
+            logger.info("Loaded %d ICU stays", len(stays))
+            aligned = restrict_to_icu_stays(aligned, stays, cfg, audit)
+            logger.info("Restricted to %d images inside an ICU observation window", len(aligned))
+        frame = select_images(aligned, cfg, audit)
+        icu_stay_count = int(frame.stay_id.nunique()) if unit == "icu_stay" else None
         frame, assignments = assign_splits(frame, cfg, audit)
         validate_index(frame)
         frame = frame[INDEX_COLUMNS].sort_values(["split", "subject_id", "admittime", "study_time", "sample_id"])
@@ -67,7 +76,9 @@ def build(config_path):
         pd.DataFrame(audit.flow).to_csv(staging / "cohort_flow.csv", index=False, lineterminator="\n")
         summary = {
             "schema_version": "1.0", "warnings": audit.warnings, "cohort_flow": audit.flow,
-            "counts": {"images": len(frame), "studies": int(frame.study_id.nunique()), "admissions": int(frame.hadm_id.nunique()), "patients": int(frame.subject_id.nunique())},
+            "cohort_unit": unit,
+            "counts": {"images": len(frame), "studies": int(frame.study_id.nunique()), "admissions": int(frame.hadm_id.nunique()), "patients": int(frame.subject_id.nunique()),
+                       **({"icu_stays": icu_stay_count} if icu_stay_count is not None else {})},
             "by_split": frame.groupby("split").agg(images=("sample_id", "size"), patients=("subject_id", "nunique"), admissions=("hadm_id", "nunique"), positives=("label", "sum"), prevalence=("label", "mean")).round(6).astype(object).where(pd.notna, None).to_dict("index"),
         }
         for split, values in summary["by_split"].items():
@@ -79,7 +90,7 @@ def build(config_path):
         spec = {"schema_version": "1.0", "task": cfg["label"]["kind"], "index": "index.csv", "index_sha256": index_hash,
                 "image_root": cfg["paths"]["image_root"], "image_path_semantics": "POSIX relative path below image_root",
                 "dataset_versions": cfg["dataset_versions"], "split_unit": "subject_id", "split_seed": cfg["split"]["seed"],
-                "sample_contract": {"image": "float32 [C,H,W], normalized", "label": "int64 scalar (0/1)", "sample_weight": "float32 scalar; sums to 1 per admission", "identifiers": ["sample_id", "subject_id", "hadm_id", "study_id", "dicom_id"]},
+                "sample_contract": {"image": "float32 [C,H,W], normalized", "label": "int64 scalar (0/1)", "sample_weight": f"float32 scalar; sums to 1 per {'ICU stay' if unit == 'icu_stay' else 'admission'}", "identifiers": ["sample_id", "subject_id", "hadm_id", "study_id", "dicom_id"]},
                 "loader": cfg["loader"]}
         write_json(staging / "dataset_spec.json", spec)
         source_manifest = [{"path": str(p), "sha256": sha256(p), "bytes": p.stat().st_size} for p in source_files]

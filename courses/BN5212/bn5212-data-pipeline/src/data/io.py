@@ -18,11 +18,16 @@ def read_csv(path, required=()) -> pd.DataFrame:
     return frame
 
 
-def table_path(root: Path, name: str) -> Path:
-    candidates = [root / "hosp" / f"{name}.csv.gz", root / "hosp" / f"{name}.csv", root / f"{name}.csv.gz", root / f"{name}.csv"]
+def table_path(root: Path, name: str, modules=("hosp",)) -> Path:
+    # MIMIC-IV splits tables across hosp/ and icu/; the root itself is accepted so
+    # a flattened export still works. Requiring exactly one match keeps a run from
+    # silently mixing two copies of a table.
+    directories = [root / module for module in modules] + [root]
+    candidates = [directory / f"{name}{suffix}" for directory in directories for suffix in (".csv.gz", ".csv")]
     found = [p for p in candidates if p.is_file()]
     if len(found) != 1:
-        raise ValueError(f"Expected exactly one {name}.csv[.gz] in root/hosp or root; found {len(found)}")
+        where = "/".join(modules) or "root"
+        raise ValueError(f"Expected exactly one {name}.csv[.gz] in root/{where} or root; found {len(found)}")
     return found[0]
 
 

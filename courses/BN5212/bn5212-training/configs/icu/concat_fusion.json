@@ -1,0 +1,67 @@
+{
+  "experiment": "concat_fusion",
+  "notes": "Simple late-fusion reference. ICU cohort, n=198, 31 events; fusion width 64. Clinical encoder is linear_projection, trained on the cohort alone; configs/icu_pretrained holds the pretrained variant.",
+  "modalities": [
+    "clinical",
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "data/runs/icu_mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "data/clinical_features.csv",
+    "clinical_timesteps": 48,
+    "batch_size": 16,
+    "num_workers": 0,
+    "image_cache": "data/cache/icu_images.json"
+  },
+  "fusion": {
+    "name": "concat_mlp",
+    "embed_dim": 64,
+    "dropout": 0.2
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.2
+  },
+  "optim": {
+    "epochs": 100,
+    "lr": 0.001,
+    "weight_decay": 0.1,
+    "warmup_epochs": 5,
+    "min_lr": 1e-06,
+    "early_stopping_patience": 15,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "grad_accumulation_steps": 1,
+    "amp": true
+  },
+  "seed": 5212,
+  "device": "auto",
+  "selection_metric": "loss",
+  "image_encoder": {
+    "name": "timm_vit",
+    "timm_model": "vit_base_patch16_224",
+    "pretrained": true,
+    "embed_dim": 768,
+    "project_to": 64,
+    "freeze": true,
+    "patch_size": 16,
+    "dropout": 0.1
+  },
+  "augmentation": {
+    "enabled": true,
+    "crop_scale_min": 0.85,
+    "rotation_degrees": 10.0,
+    "brightness": 0.15,
+    "contrast": 0.15,
+    "horizontal_flip": false
+  },
+  "clinical_encoder": {
+    "name": "linear_projection",
+    "tokenization": "per_variable",
+    "embed_dim": 64,
+    "hidden_dim": 64,
+    "missing_indicator": true,
+    "dropout": 0.3
+  }
+}

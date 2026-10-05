@@ -1,0 +1,4 @@
+comparison,auroc_difference,lower,upper,interval_excludes_zero
+Clinical-only (pretrained encoder) - Clinical-only (cohort only),0.11902937420178805,-0.05057451046124103,0.2784197655005742,False
+Clinical-only (pretrained encoder) - CXR-only,0.17369093231162203,-0.009468202526889286,0.33838989753370063,False
+Clinical-only (cohort only) - CXR-only,0.054661558109833974,-0.11484754211478056,0.22053144094915264,False

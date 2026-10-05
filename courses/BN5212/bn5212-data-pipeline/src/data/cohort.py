@@ -55,7 +55,48 @@ def align_images(cxr, admissions, cfg, audit):
     frame = audit.filter(frame, frame.label.notna(), "known_binary_label", "images")
     frame["label"] = frame.label.astype(int)
     frame["label_name"] = label["kind"] if label["kind"] == "in_hospital_mortality" else label["column"]
+    # Always present so both cohort units publish one index schema; filled in by
+    # restrict_to_icu_stays when the ICU unit is selected.
+    frame["stay_id"] = ""
     return frame
+
+
+def restrict_to_icu_stays(frame, stays, cfg, audit):
+    """Re-anchor the cohort on ICU stays, as MeTra does.
+
+    The observation window becomes [intime, intime + icu_observation_hours) and the
+    prediction is made at the end of it, not at the radiograph. Requiring that
+    prediction instant to fall strictly before the outcome enforces two things at
+    once: the patient survived the window, and the admission had not already ended
+    (a record that stops early would otherwise leak survival through its absence).
+    """
+    hours = float(cfg["alignment"].get("icu_observation_hours", 48))
+    columns = ["subject_id", "hadm_id", "stay_id", "intime", "outtime"]
+    # align_images seeds an empty stay_id; drop it so the join supplies the real one.
+    merged = frame.drop(columns=["stay_id"]).merge(
+        stays[columns], on=["subject_id", "hadm_id"], how="inner", validate="many_to_many"
+    )
+    audit.flow.append({"stage": "linked_icu_stay", "unit": "images", "before": len(frame), "after": len(merged),
+                       "excluded": len(frame) - len(merged)})
+    if merged.empty:
+        raise ValueError("No images fall inside an ICU stay; check icustays.csv and cohort.unit")
+
+    elapsed = (merged.study_time - merged.intime).dt.total_seconds() / 3600
+    merged = merged.assign(hours_since_icu_intime=elapsed)
+    merged = audit.filter(merged, elapsed.ge(0) & elapsed.lt(hours), "imaging_inside_icu_window", "images")
+
+    # ICU stays of one patient do not overlap, so an image belongs to exactly one.
+    duplicated = merged.duplicated(["dicom_id"], keep=False)
+    if bool(duplicated.any()):
+        merged = audit.filter(merged, ~duplicated, "unique_icu_stay_per_image", "images")
+
+    prediction_time = merged.intime + pd.to_timedelta(hours, unit="h")
+    merged = merged.assign(prediction_time=prediction_time)
+    before_outcome = (merged.event_cutoff - prediction_time).dt.total_seconds() / 3600
+    merged = audit.filter(merged, before_outcome > 0, "outcome_undetermined_at_prediction_time", "images")
+    if merged.empty:
+        raise ValueError("No ICU stays survive the observation window; lower alignment.icu_observation_hours")
+    return merged.reset_index(drop=True)
 
 
 def select_images(frame, cfg, audit):
@@ -82,10 +123,14 @@ def select_images(frame, cfg, audit):
     frame["view_rank"] = frame.view.map(ranking)
     frame = frame.sort_values(["subject_id", "hadm_id", "study_time", "view_rank", "study_id", "dicom_id"])
     selection = cfg["cohort"]["selection"]
-    keys = {"first_per_admission": ["hadm_id"], "first_per_study": ["study_id"], "all_images": ["dicom_id"]}[selection]
+    keys = {"first_per_admission": ["hadm_id"], "first_per_study": ["study_id"],
+            "all_images": ["dicom_id"], "first_per_icu_stay": ["stay_id"]}[selection]
     frame = audit.filter(frame, ~frame.duplicated(keys), selection, "images")
     if frame.empty:
         raise ValueError("No eligible images; inspect paths, timestamps, views and cohort settings")
     frame["sample_id"] = "cxr_" + frame.dicom_id
-    frame["sample_weight"] = 1.0 / frame.groupby("hadm_id").dicom_id.transform("size")
+    # The weight balances the study unit, so it follows cohort.unit: several
+    # images of one ICU stay must not count as several independent patients.
+    unit_key = "stay_id" if cfg["cohort"].get("unit", "admission") == "icu_stay" else "hadm_id"
+    frame["sample_weight"] = 1.0 / frame.groupby(unit_key).dicom_id.transform("size")
     return frame.reset_index(drop=True)
