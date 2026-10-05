@@ -1,21 +1,11 @@
-"""Extract clinical time series from MIMIC-IV into the long-format table.
+"""Extract clinical time series from MIMIC-IV into the long-format table
+docs/CLINICAL_FEATURE_SPEC.md describes.
 
-Produces exactly the file docs/CLINICAL_FEATURE_SPEC.md describes, which
-TableClinicalProvider then consumes. It writes a side-car file and never touches
-the frozen run directory, index.csv or the pipeline's Dataset, so the data
-project's module stays untouched.
-
-Three properties this module is built around:
-
-* chartevents is ~30 GB compressed. It is streamed in chunks and filtered on
-  itemid and cohort hadm_id inside each chunk, so peak memory stays flat and the
-  output is only the cohort's own rows.
-* Leakage is blocked on two clocks. A measurement is kept only when both its
-  charttime and its storetime are before the prediction time: a value charted at
-  hour 3 but stored at hour 50 was not available when the radiograph was taken.
-  The dataloader spec calls this out explicitly.
-* An admission with several radiographs is cut at its earliest study_time, so no
-  sample of that admission can see another sample's future.
+* chartevents is streamed in chunks and filtered on itemid and cohort hadm_id,
+  so memory stays flat.
+* A measurement is kept only when both charttime and storetime are before the
+  prediction time.
+* An admission with several radiographs is cut at its earliest study_time.
 """
 from __future__ import annotations
 
@@ -104,13 +94,9 @@ def build_cohort(
 ) -> pd.DataFrame:
     """One observation window per study unit.
 
-    admission: the window runs from admittime to the earliest radiograph of that
-    admission, which is when the prediction is made.
-
-    icu_stay: the window runs from the ICU intime for icu_hours, and the
-    prediction is made at the end of it, as in MeTra. An admission can hold more
-    than one ICU stay, so the window is keyed by stay_id; ICU stays of a patient
-    do not overlap, so an event falls in at most one window.
+    admission: admittime to the earliest radiograph of that admission.
+    icu_stay: ICU intime for icu_hours, keyed by stay_id; the prediction is made
+    at the end of the window, as in MeTra.
 
     Columns: unit_id, hadm_id, stay_id, window_start, prediction_time, cutoff_hours.
     """
@@ -452,10 +438,8 @@ def extract_clinical_features(
         not f.empty for f in frames
     ) else pd.DataFrame(columns=["unit_id", "hadm_id", "stay_id", "variable", "hour", "value", "charttime", "source"])
 
-    # chartevents lives in the ICU module, so it only exists for admissions that
-    # included an ICU stay. On an admission-level cohort a large share of patients
-    # can have no vital signs at all, which would quietly train the clinical
-    # branch on mostly-missing input. Surface it here rather than let it hide.
+    # chartevents only exists for admissions with an ICU stay; report coverage
+    # so a mostly-missing clinical branch cannot go unnoticed.
     units = int(len(cohort))
     coverage = {}
     for source in ("chartevents", "labevents"):

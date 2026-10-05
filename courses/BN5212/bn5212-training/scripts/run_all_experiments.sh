@@ -40,7 +40,7 @@ CONFIG_DIR="configs"
 if [ "$PRESET" = "synthetic" ] && [ -z "$RUN_DIR" ]; then
   RUN_DIR="../bn5212-data-pipeline/demo/png/processed"
   [ -f "$RUN_DIR/SUCCESS.json" ] || {
-    echo "Synthetic fixture missing. See README, 'Run training locally', step 1." >&2; exit 1; }
+    echo "Synthetic fixture missing. See docs/USAGE.md, step 1 of the local run." >&2; exit 1; }
 fi
 [ -n "$RUN_DIR" ] || { echo "--run-dir is required for the real preset" >&2; exit 1; }
 

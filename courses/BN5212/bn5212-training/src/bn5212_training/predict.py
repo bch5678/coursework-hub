@@ -1,9 +1,7 @@
 """Deterministic inference and the prediction hand-off to benchmark-evaluation.
 
-The only artefact the benchmark accepts is a CSV with exactly two columns,
-sample_id and y_score, where y_score is P(in-hospital mortality) in [0, 1] and the
-sample_id set matches the frozen split exactly. Everything here exists to produce
-that file and to fail loudly rather than emit a file the benchmark will reject.
+The benchmark accepts a CSV with exactly two columns, sample_id and y_score
+(P(in-hospital mortality) in [0, 1]), whose ids match the frozen split.
 """
 from __future__ import annotations
 

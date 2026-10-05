@@ -1,13 +1,8 @@
 """Loss construction.
 
-Two details matter for this project:
-
-* `sample_weight` from the index is 1 / (images in that admission). Weighting the
-  per-image loss by it stops an admission with many radiographs from counting as
-  several independent patients, which is the rule the dataloader spec sets out.
-* In-hospital mortality is imbalanced. MeTra identified the imbalance but did not
-  address it, so `positive_class_weight: null` plus `use_sample_weight` reproduces
-  their setting, while an explicit weight (or "auto") is available for the ablation.
+sample_weight (1 / images in that admission) weights the per-image loss, so an
+admission with many radiographs does not count as several patients.
+positive_class_weight: None reproduces MeTra; "auto" or a number reweights.
 """
 from __future__ import annotations
 

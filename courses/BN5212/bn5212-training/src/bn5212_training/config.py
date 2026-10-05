@@ -1,8 +1,6 @@
 """Declarative experiment configuration.
 
-Every experiment in the project plan is one config file. Encoders, prediction
-head, optimiser and data stay identical across experiments; only `fusion.name`
-changes. That is what keeps MeTra and the proposed cross-attention comparable.
+Every experiment is one config file; unknown keys are rejected.
 """
 from __future__ import annotations
 
@@ -29,6 +27,9 @@ class DataConfig:
     data_pipeline_path: str | None = None
     batch_size: int | None = None          # None -> dataset_spec.loader.batch_size
     num_workers: int | None = None
+    # Pre-decoded images. Decoding a DICOM costs ~400 ms, so without this a
+    # multi-fold image run spends most of its time in the loader.
+    image_cache: str | None = None
     # Clinical branch
     clinical_provider: str = "synthetic"   # synthetic | table
     clinical_source: str | None = None     # path used by the table provider
@@ -39,7 +40,7 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class ImageEncoderConfig:
-    name: str = "vit"                      # vit | timm_vit | simple_cnn
+    name: str = "vit"                      # vit | timm_vit | xrv_densenet
     embed_dim: int = 192
     patch_size: int = 16
     depth: int = 6
@@ -49,16 +50,46 @@ class ImageEncoderConfig:
     pretrained: bool = False               # timm_vit only
     timm_model: str = "vit_base_patch16_224"
     freeze: bool = False
+    # A frozen ViT-B emits 768-wide tokens. Forcing the fusion to that width
+    # makes joint self-attention alone ~14M parameters, which cannot be trained
+    # on a few hundred samples, so the tokens are projected down first.
+    project_to: int | None = None
+    # Chest-radiograph pretrained weights for the xrv_densenet encoder.
+    # MIMIC-containing checkpoints are rejected: they overlap our held-out images.
+    xrv_weights: str = "densenet121-res224-chex"
+    unfreeze_last_blocks: int = 0          # partial fine-tuning; 0 keeps it frozen
+
+
+@dataclass(frozen=True)
+class AugmentationConfig:
+    """Training-time image augmentation, applied to the normalised tensor.
+
+    No horizontal flip by default: a mirrored chest film shows dextrocardia.
+    """
+
+    enabled: bool = False
+    crop_scale_min: float = 0.85
+    crop_scale_max: float = 1.0
+    rotation_degrees: float = 10.0
+    brightness: float = 0.15               # additive, in normalised units
+    contrast: float = 0.15                 # multiplicative around the image mean
+    horizontal_flip: bool = False          # left/right anatomy; keep false
 
 
 @dataclass(frozen=True)
 class ClinicalEncoderConfig:
-    name: str = "linear_projection"        # linear_projection | mlp_projection
+    # linear_projection | variable_projection | summary_stats
+    name: str = "linear_projection"
     tokenization: str = "per_variable"     # per_variable | per_timestep
     embed_dim: int = 192
-    hidden_dim: int = 256
+    hidden_dim: int = 256                  # unused; kept so saved configs still load
     dropout: float = 0.0
     missing_indicator: bool = True         # append the mask as extra channels
+    # Checkpoint written by `python -m bn5212_training.pretrain fit`. It supplies
+    # the encoder weights and the normalisation statistics they were trained
+    # with, both from ICU stays outside the study cohort.
+    pretrained: str | None = None
+    freeze: bool = False                   # keep the pretrained encoder fixed
 
 
 @dataclass(frozen=True)
@@ -96,6 +127,13 @@ class OptimConfig:
     positive_class_weight: float | str | None = None  # None | "auto" | explicit weight
     use_sample_weight: bool = True
     early_stopping_patience: int = 8
+    # First epoch allowed to win the checkpoint; None means 'after warmup', so
+    # an epoch at a reduced learning rate cannot be selected.
+    min_epochs_before_selection: int | None = None
+    # Separate learning rate for unfrozen backbone weights. Pretrained
+    # features are destroyed by the rate a freshly initialised head needs,
+    # so fine-tuning requires its own, much smaller, step size.
+    backbone_lr: float | None = None
     min_lr: float = 0.0                    # cosine annealing floor (MeTra uses 1e-7)
     # MeTra drops a whole modality at random during multimodal training so that
     # the model cannot rely on one branch alone. Probability of zeroing the
@@ -111,6 +149,7 @@ class TrainingConfig:
     data: DataConfig
     image_encoder: ImageEncoderConfig = field(default_factory=ImageEncoderConfig)
     clinical_encoder: ClinicalEncoderConfig = field(default_factory=ClinicalEncoderConfig)
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
     head: HeadConfig = field(default_factory=HeadConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
@@ -134,15 +173,22 @@ class TrainingConfig:
             raise ValueError("selection_metric must be auroc, auprc or loss")
         # One embedding width is shared by both encoders and the fusion module so
         # that image and clinical tokens can live in the same attention space.
-        if self.uses_image and self.image_encoder.embed_dim != self.fusion.embed_dim:
+        image_width = self.image_encoder.project_to or self.image_encoder.embed_dim
+        if self.uses_image and image_width != self.fusion.embed_dim:
             raise ValueError(
-                "image_encoder.embed_dim must equal fusion.embed_dim "
-                f"({self.image_encoder.embed_dim} != {self.fusion.embed_dim})"
+                "the image encoder's output width must equal fusion.embed_dim "
+                f"({image_width} != {self.fusion.embed_dim}); set "
+                "image_encoder.project_to when a pretrained backbone fixes the width"
             )
         if self.uses_clinical and self.clinical_encoder.embed_dim != self.fusion.embed_dim:
             raise ValueError(
                 "clinical_encoder.embed_dim must equal fusion.embed_dim "
                 f"({self.clinical_encoder.embed_dim} != {self.fusion.embed_dim})"
+            )
+        if self.clinical_encoder.freeze and not self.clinical_encoder.pretrained:
+            raise ValueError(
+                "clinical_encoder.freeze needs clinical_encoder.pretrained: freezing "
+                "a randomly initialised encoder would feed the model fixed noise"
             )
 
     @property
@@ -168,6 +214,7 @@ _SECTIONS = {
     "data": DataConfig,
     "image_encoder": ImageEncoderConfig,
     "clinical_encoder": ClinicalEncoderConfig,
+    "augmentation": AugmentationConfig,
     "fusion": FusionConfig,
     "head": HeadConfig,
     "optim": OptimConfig,

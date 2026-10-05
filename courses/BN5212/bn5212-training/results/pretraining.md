@@ -1,0 +1,20 @@
+| item | value |
+| --- | --- |
+| cohort flow: icu_stays_with_admission | 94458 |
+| cohort flow: patient_not_in_study_cohort | 94179 |
+| cohort flow: valid_timestamps | 94179 |
+| cohort flow: adult | 94179 |
+| cohort flow: valid_mortality_and_death_time | 93446 |
+| cohort flow: outcome_undetermined_at_prediction_time | 82959 |
+| cohort flow: sampled_whole_patients | 20001 |
+| cohort flow: patient_covered_by_chartevents | 14309 |
+| study patients excluded | 159 |
+| external stays | 14309 |
+| external patients | 10007 |
+| external deaths | 1313 |
+| pretrain_train: stays / deaths | 12121 / 1100 |
+| pretrain_val: stays / deaths | 2188 / 213 |
+| variable_projection: external validation AUROC | 0.8480 |
+| variable_projection: external validation AUPRC | 0.4258 |
+| linear_projection: external validation AUROC | 0.7912 |
+| linear_projection: external validation AUPRC | 0.3660 |

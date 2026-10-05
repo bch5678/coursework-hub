@@ -1,9 +1,5 @@
-"""Run provenance.
-
-The benchmark project requires every model version to declare its git commit,
-dataset index hash, checkpoint SHA-256, seed and software environment. Recording
-them at training time is what makes a result reproducible later, so the manifest
-is written by the trainer rather than reconstructed by hand afterwards.
+"""Run provenance: git commit, dataset index hash, checkpoint SHA-256, seed and
+software environment, recorded at training time as the benchmark project requires.
 """
 from __future__ import annotations
 

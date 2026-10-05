@@ -1,0 +1,7 @@
+comparison,auroc_difference,lower,upper,interval_excludes_zero
+CXR-only - Clinical-only (pretrained encoder),-0.17369093231162203,-0.3383898975337007,0.009468202526889243,False
+Concat fusion - Clinical-only (pretrained encoder),-0.03984674329501925,-0.13870712155108125,0.05568978198056211,False
+MeTra joint self-attention - Clinical-only (pretrained encoder),-0.19489144316730533,-0.3394290101912606,-0.035245328219466375,True
+Cross-attention - Clinical-only (pretrained encoder),-0.054661558109833974,-0.16746248862214122,0.04258143063712792,False
+Cross-attention - MeTra joint self-attention,0.14022988505747136,-0.025553252551020363,0.28569517200131983,False
+Cross-attention - Concat fusion,-0.014814814814814725,-0.135011670074457,0.09776662024538832,False

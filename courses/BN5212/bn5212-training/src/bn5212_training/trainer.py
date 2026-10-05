@@ -1,14 +1,8 @@
 """The training loop shared by every experiment.
 
-One loop serves clinical-only, CXR-only, MeTra joint self-attention and the
-proposed cross-attention. Optimiser, schedule, loss, seeding, checkpoint
-selection and prediction export are identical across them by construction, so a
-difference between two runs is attributable to the fusion module rather than to
-an incidental difference in training setup.
-
-Model selection reads the validation split only. The test split is never scored
-here: its predictions are exported for benchmark-evaluation and nothing in this
-file looks at the resulting labels.
+Optimiser, schedule, loss, seeding, checkpoint selection and prediction export
+are identical across experiments. Model selection reads validation data only;
+test predictions are exported and never scored here.
 """
 from __future__ import annotations
 
@@ -18,7 +12,7 @@ import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import torch
@@ -158,17 +152,53 @@ def train_one_epoch(
     return total_loss / max(total_count, 1)
 
 
-def _prepare_clinical(cfg: TrainingConfig) -> tuple[Any, ClinicalNormalizer | None]:
-    """Build the provider and fit normalisation statistics on the train split only."""
+def _build_optimizer(model: BN5212Model, cfg: TrainingConfig) -> torch.optim.Optimizer:
+    """AdamW, with a separate learning rate for unfrozen backbone weights when asked."""
+    decay = cfg.optim.weight_decay
+    if cfg.optim.backbone_lr is None or model.image_encoder is None:
+        return torch.optim.AdamW(model.parameters(), lr=cfg.optim.lr, weight_decay=decay)
+
+    backbone = getattr(model.image_encoder, "backbone", None)
+    backbone_ids = {id(p) for p in backbone.parameters()} if backbone is not None else set()
+    backbone_params, other_params = [], []
+    for parameter in model.parameters():
+        if not parameter.requires_grad:
+            continue
+        (backbone_params if id(parameter) in backbone_ids else other_params).append(parameter)
+
+    groups = [{"params": other_params, "lr": cfg.optim.lr}]
+    if backbone_params:
+        groups.append({"params": backbone_params, "lr": cfg.optim.backbone_lr})
+    return torch.optim.AdamW(groups, lr=cfg.optim.lr, weight_decay=decay)
+
+
+def _prepare_clinical(
+    cfg: TrainingConfig,
+    splits: Sequence[str] = ("train",),
+    subjects: Sequence[str] | None = None,
+) -> tuple[Any, ClinicalNormalizer | None]:
+    """Build the provider and fit normalisation statistics on fitting data only.
+
+    In a fold the statistics come from that fold's fitting patients.
+    """
     if not cfg.uses_clinical:
         return None, None
+    if cfg.clinical_encoder.pretrained:
+        # The encoder was trained on inputs scaled with these statistics, and they
+        # come from patients outside the cohort, so no fold can leak through them.
+        from .pretrain import load_pretrained_normalizer
+
+        normalizer = load_pretrained_normalizer(cfg.clinical_encoder.pretrained)
+        provider = build_provider(cfg.data, variable_names=normalizer.variable_names)
+        return provider, normalizer
     provider = build_provider(cfg.data)
     probe = TrainingDataset(
         cfg.data.run_dir,
-        "train",
+        splits,
         data_pipeline_path=cfg.data.data_pipeline_path,
         provider=None,
         load_image=False,
+        subjects=subjects,
     )
     normalizer = ClinicalNormalizer.fit(provider, probe.rows(), split="train")
     return provider, normalizer
@@ -224,11 +254,48 @@ def train(
     *,
     output_dir: str | Path | None = None,
     run_id: str | None = None,
+    fit_subjects: Sequence[str] | None = None,
+    select_subjects: Sequence[str] | None = None,
+    score_subjects: Sequence[str] | None = None,
+    epoch_budget: int | None = None,
 ) -> dict[str, Any]:
-    """Run one experiment end to end and return its summary."""
+    """Run one experiment end to end and return its summary.
+
+    fit_subjects switches to fold mode (cross-validation over train+val). The
+    three patient groups must be disjoint:
+
+    * fit_subjects: the weights are fitted on these.
+    * select_subjects: early stopping and checkpoint selection read these.
+    * score_subjects: scored once by the selected checkpoint, exported as
+      predictions_heldout, and never read by anything that shapes the model.
+
+    epoch_budget replaces select_subjects: train exactly that many epochs of the
+    configured schedule and keep the final weights.
+    """
     started = time.time()
     set_seed(cfg.seed)
     device = resolve_device(cfg.device)
+    fold_mode = fit_subjects is not None
+    if not fold_mode and (select_subjects or score_subjects or epoch_budget is not None):
+        raise ValueError("select_subjects, score_subjects and epoch_budget need fit_subjects")
+    if fold_mode:
+        if (select_subjects is None) == (epoch_budget is None):
+            raise ValueError("fold mode needs exactly one of select_subjects or epoch_budget")
+        if epoch_budget is not None and epoch_budget < 1:
+            raise ValueError("epoch_budget must be at least 1")
+        groups = {
+            "fit_subjects": {str(s) for s in fit_subjects},
+            "select_subjects": {str(s) for s in select_subjects or ()},
+            "score_subjects": {str(s) for s in score_subjects or ()},
+        }
+        names = list(groups)
+        for position, first in enumerate(names):
+            for second in names[position + 1:]:
+                if groups[first] & groups[second]:
+                    raise ValueError(
+                        f"{first} and {second} share {len(groups[first] & groups[second])} "
+                        "patient(s); the three groups must be disjoint"
+                    )
 
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     root = Path(output_dir or cfg.output_dir) / cfg.experiment / run_id
@@ -236,21 +303,62 @@ def train(
     root.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    provider, normalizer = _prepare_clinical(cfg)
+    fold_splits = ("train", "val")
+    provider, normalizer = _prepare_clinical(
+        cfg, fold_splits if fold_mode else ("train",), fit_subjects
+    )
     if normalizer is not None:
         normalizer.save(root / "clinical_normalizer.json")
 
-    datasets = {
-        split: TrainingDataset(
+    image_cache = None
+    if cfg.uses_image and cfg.data.image_cache:
+        from .cache import ImageCache
+
+        probe = TrainingDataset(
+            cfg.data.run_dir, "train",
+            data_pipeline_path=cfg.data.data_pipeline_path, load_image=False,
+        )
+        image_cache = ImageCache(cfg.data.image_cache, probe.spec)
+
+    # Augmentation is training-only: validation and test must see the image the
+    # pipeline produced, or the metric measures a different input distribution.
+    train_transform = None
+    if cfg.uses_image and cfg.augmentation.enabled:
+        from .augment import build_train_transform
+
+        geometry = TrainingDataset(
+            cfg.data.run_dir, "train",
+            data_pipeline_path=cfg.data.data_pipeline_path, load_image=False,
+        )
+        train_transform = build_train_transform(cfg.augmentation, geometry.image_size)
+
+    def build(splits, subjects, transform=None):
+        return TrainingDataset(
             cfg.data.run_dir,
-            split,
+            splits,
             data_pipeline_path=cfg.data.data_pipeline_path,
             provider=provider,
             normalizer=normalizer,
             load_image=cfg.uses_image,
+            subjects=subjects,
+            image_cache=image_cache,
+            transform=transform,
         )
-        for split in ("train", "val", "test")
-    }
+
+    if fold_mode:
+        # "val" is what the loop monitors: the selection patients, or under an
+        # epoch budget the fitting patients themselves, whose numbers are then
+        # in-sample and never reported. The frozen test split is not built.
+        monitored = fit_subjects if select_subjects is None else select_subjects
+        datasets = {
+            "train": build(fold_splits, fit_subjects, train_transform),
+            "val": build(fold_splits, monitored),
+        }
+        if score_subjects is not None:
+            datasets["heldout"] = build(fold_splits, score_subjects)
+    else:
+        datasets = {"train": build("train", None, train_transform)}
+        datasets.update({split: build(split, None) for split in ("val", "test")})
     loaders = {
         split: make_loader(
             dataset,
@@ -263,33 +371,48 @@ def train(
     }
 
     train_set = datasets["train"]
+    loader_spec = train_set.spec["loader"]
+    # Normalisation belongs in the geometry: an encoder can hold it as a buffer,
+    # and rebuilding from a checkpoint has to reproduce the same shapes.
     geometry = {
         "image_size": train_set.image_size,
         "channels": train_set.channels,
         "num_variables": train_set.num_variables,
         "num_timesteps": train_set.num_timesteps,
+        "mean": list(loader_spec["mean"]),
+        "std": list(loader_spec["std"]),
     }
     model = build_model(cfg, **geometry).to(device)
     loss_fn = build_loss(cfg, train_set.label_array())
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=cfg.optim.lr, weight_decay=cfg.optim.weight_decay
-    )
+    optimizer = _build_optimizer(model, cfg)
     scaler = (
         torch.amp.GradScaler(device.type)
         if cfg.optim.amp and device.type == "cuda"
         else None
     )
 
+    # Remember each group's base rate so the schedule scales them independently.
+    for group in optimizer.param_groups:
+        group.setdefault("initial_lr", group["lr"])
+
     history: list[dict[str, Any]] = []
     best_metric: float | None = None
     best_epoch = -1
     best_path = root / "checkpoint_best.pt"
     patience_left = cfg.optim.early_stopping_patience
+    selection_opens = (
+        cfg.optim.warmup_epochs
+        if cfg.optim.min_epochs_before_selection is None
+        else cfg.optim.min_epochs_before_selection
+    )
 
-    for epoch in range(cfg.optim.epochs):
+    # A budget truncates the run but not the schedule: the learning rate at
+    # epoch k must be the one the selecting folds saw at epoch k.
+    planned = cfg.optim.epochs if epoch_budget is None else min(epoch_budget, cfg.optim.epochs)
+    for epoch in range(planned):
         scale = _learning_rate_scale(epoch, cfg)
         for group in optimizer.param_groups:
-            group["lr"] = cfg.optim.lr * scale
+            group["lr"] = group.get("initial_lr", group["lr"]) * scale
 
         train_loss = train_one_epoch(
             model, loaders["train"], loss_fn, optimizer, device, cfg, scaler
@@ -307,7 +430,13 @@ def train(
         history.append(record)
 
         candidate = validation.get(cfg.selection_metric)
-        if is_better(cfg.selection_metric, candidate, best_metric):
+        # Epochs inside the warmup ran at a reduced learning rate, so their
+        # scores are not comparable with the rest. They neither win the
+        # checkpoint nor count against the patience budget.
+        warming_up = epoch < selection_opens and epoch_budget is None
+        if warming_up or epoch_budget is not None:
+            pass
+        elif is_better(cfg.selection_metric, candidate, best_metric):
             best_metric = candidate
             best_epoch = epoch + 1
             patience_left = cfg.optim.early_stopping_patience
@@ -326,6 +455,7 @@ def train(
             f"[{cfg.experiment}] epoch {epoch + 1}/{cfg.optim.epochs} "
             f"train_loss={train_loss:.4f} val_loss={validation['loss']:.4f} "
             f"val_auroc={validation['auroc']}"
+            + ("  (warmup)" if warming_up else "")
         )
         if patience_left <= 0:
             print(f"[{cfg.experiment}] early stopping after epoch {epoch + 1}")
@@ -339,6 +469,18 @@ def train(
         normalizer=normalizer,
         geometry=geometry,
     )
+
+    if epoch_budget is not None:
+        # Nothing was selected: the deliverable is the model the budget produced.
+        best_epoch = len(history)
+        save_checkpoint(
+            best_path,
+            model,
+            epoch=best_epoch,
+            metrics={key: value for key, value in history[-1].items() if key != "epoch"},
+            normalizer=normalizer,
+            geometry=geometry,
+        )
 
     # Every downstream artefact comes from the validation-selected checkpoint.
     if best_path.is_file():
@@ -384,7 +526,8 @@ def train(
     ]
 
     prediction_paths: dict[str, str] = {}
-    for split in ("val", "test"):
+    exported = [name for name in ("val", "heldout", "test") if name in loaders]
+    for split in exported:
         result = run_inference(model, loaders[split], device)
         prediction_paths[split] = str(
             write_predictions(result, root / f"predictions_{split}.csv")
@@ -433,9 +576,16 @@ def train(
                 "parameters": parameters,
                 "geometry": geometry,
                 "split_sizes": {name: len(ds) for name, ds in datasets.items()},
+                "fold_mode": fold_mode,
+                "fit_patients": None if fit_subjects is None else len(fit_subjects),
+                "select_patients": None if select_subjects is None else len(select_subjects),
+                "score_patients": None if score_subjects is None else len(score_subjects),
+                "epoch_budget": epoch_budget,
                 "validation_metrics": val_metrics,
                 "checkpoint_sha256": sha256(best_path) if best_path.is_file() else None,
                 "clinical_provider": cfg.data.clinical_provider if cfg.uses_clinical else None,
+                "image_cache": cfg.data.image_cache if cfg.uses_image else None,
+                "augmentation": cfg.augmentation.__dict__ if (cfg.uses_image and cfg.augmentation.enabled) else None,
                 # The statistics themselves live in clinical_normalizer.json; the
                 # manifest only records that they were fitted on train.
                 "clinical_normalizer": (

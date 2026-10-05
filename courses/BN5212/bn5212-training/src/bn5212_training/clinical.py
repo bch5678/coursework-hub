@@ -1,17 +1,9 @@
 """Clinical time-series features for the clinical branch.
 
-The frozen data pipeline does not extract clinical time series: it reads only
-admissions and patients. Adding chartevents/labevents cleaning is data-side work
-(see CONTRIBUTING), so this module defines the *interface* the training framework
-consumes and ships a synthetic provider so the clinical branch is runnable and
-testable before the real extraction lands. docs/CLINICAL_FEATURE_SPEC.md is the
-contract handed to the data owner.
+Two leakage rules are enforced here:
 
-Two leakage rules are enforced here rather than trusted:
-
-1. Every observation must be strictly before the prediction time study_time.
-   Hours at or after the cutoff are dropped even if the input file contains them.
-2. Normalisation statistics are fitted on the train split only and then frozen.
+1. Every observation is strictly before the prediction time.
+2. Normalisation statistics are fitted on fitting data only, then frozen.
 """
 from __future__ import annotations
 
@@ -67,11 +59,7 @@ class ClinicalFeatureProvider(Protocol):
 def _guard_empty_window(mask: np.ndarray) -> None:
     """Keep one position valid when an admission has no observations at all.
 
-    A fully empty mask would make every clinical token padding, and attention
-    over an all-padded sequence produces NaN. The guard is deliberately
-    per-admission, not per-variable: marking an unmeasured variable as observed
-    would fabricate a measurement and corrupt the missing indicator that the
-    encoder feeds to the model.
+    Attention over an all-padded sequence produces NaN.
     """
     if not mask.any():
         mask[0, 0] = True
@@ -88,11 +76,8 @@ def _cutoff_hours(row: Mapping[str, Any], num_timesteps: int) -> float:
 class SyntheticClinicalProvider:
     """Deterministic pseudo-data for offline development and tests.
 
-    NOT A MODEL RESULT. By default the values are pure noise that carries no
-    information about the label, so a correct pipeline scores AUROC around 0.5 on
-    this provider. A positive signal deliberately shifts the values by the label
-    to prove the training loop can learn at all; any number produced with
-    signal > 0 is a self-test, never a benchmark result.
+    Pure noise by default (AUROC ~0.5). signal > 0 shifts values by the label to
+    prove the loop can learn; never a benchmark result.
     """
 
     def __init__(
@@ -209,6 +194,10 @@ class TableClinicalProvider:
             return pd.read_parquet(path)
         return pd.read_csv(path)
 
+    def has_observations(self, row: Mapping[str, Any]) -> bool:
+        """Whether the table holds any row for this admission or ICU stay."""
+        return str(row.get(self.key, "") or "") in self._by_unit
+
     def features(self, row: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray]:
         shape = (len(self.variable_names), self.num_timesteps)
         values = np.zeros(shape, dtype=np.float32)
@@ -218,10 +207,8 @@ class TableClinicalProvider:
             mask[:, 0] = True
             return values, mask
 
-        # An ICU-level table counts hours from the ICU intime and covers the whole
-        # observation window, so the row's hours_since_admission (measured from
-        # admittime) is the wrong ruler and would truncate most of it. The
-        # extraction already enforced that window, so the full span is visible.
+        # An ICU-level table counts hours from the ICU intime and already covers
+        # the whole window, so hours_since_admission must not truncate it.
         if self.key == "stay_id":
             limit = self.num_timesteps
         else:

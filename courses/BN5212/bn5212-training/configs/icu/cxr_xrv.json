@@ -1,0 +1,57 @@
+{
+  "experiment": "cxr_xrv",
+  "notes": "CXR-only with a DenseNet121 pretrained on chest radiographs (CheXpert) instead of ImageNet. The CheXpert-only checkpoint is used deliberately: the 'all' and 'mimic' checkpoints were trained on a corpus containing MIMIC-CXR and would have seen this project's held-out images. ICU cohort, n=198.",
+  "modalities": [
+    "cxr"
+  ],
+  "data": {
+    "run_dir": "data/runs/icu_mortality_v1",
+    "clinical_provider": "table",
+    "clinical_source": "data/clinical_features.csv",
+    "clinical_timesteps": 48,
+    "batch_size": 16,
+    "num_workers": 0,
+    "image_cache": "data/cache/icu_images.json"
+  },
+  "fusion": {
+    "name": "image_only",
+    "embed_dim": 64,
+    "pooling": "cls",
+    "dropout": 0.2
+  },
+  "head": {
+    "num_outputs": 1,
+    "dropout": 0.2
+  },
+  "optim": {
+    "epochs": 100,
+    "lr": 0.001,
+    "weight_decay": 0.1,
+    "warmup_epochs": 5,
+    "min_lr": 1e-06,
+    "early_stopping_patience": 15,
+    "positive_class_weight": null,
+    "use_sample_weight": true,
+    "grad_accumulation_steps": 1,
+    "amp": true
+  },
+  "seed": 5212,
+  "device": "auto",
+  "selection_metric": "loss",
+  "image_encoder": {
+    "name": "xrv_densenet",
+    "xrv_weights": "densenet121-res224-chex",
+    "embed_dim": 1024,
+    "project_to": 64,
+    "freeze": true,
+    "dropout": 0.1
+  },
+  "augmentation": {
+    "enabled": true,
+    "crop_scale_min": 0.85,
+    "rotation_degrees": 10.0,
+    "brightness": 0.15,
+    "contrast": 0.15,
+    "horizontal_flip": false
+  }
+}

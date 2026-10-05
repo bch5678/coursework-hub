@@ -1,9 +1,4 @@
-"""Single-modality fusion: pool one token set and ignore the other.
-
-Experiment 1 (clinical-only) and Experiment 2 (CXR-only). They share every other
-component with the multimodal experiments, so a performance gap is attributable
-to the fusion strategy rather than to a different training setup.
-"""
+"""Single-modality fusion: pool one token set and ignore the other."""
 from __future__ import annotations
 
 import torch

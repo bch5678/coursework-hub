@@ -7,7 +7,7 @@ inference against a checkpoint from this framework without an extra shim.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import torch
 import torch.nn as nn
@@ -51,6 +51,9 @@ class BN5212Model(nn.Module):
         channels: int = 1,
         num_variables: int = 0,
         num_timesteps: int = 0,
+        mean: Sequence[float] = (0.5,),
+        std: Sequence[float] = (0.5,),
+        load_pretrained: bool = True,
     ) -> None:
         super().__init__()
         self.cfg = cfg
@@ -60,11 +63,15 @@ class BN5212Model(nn.Module):
         num_clinical_tokens = 0
 
         if cfg.uses_image:
+            # mean/std travel with the geometry so an encoder that needs a
+            # different input range can undo the pipeline's normalisation.
             self.image_encoder = IMAGE_ENCODERS.build(
                 cfg.image_encoder.name,
                 cfg.image_encoder,
                 image_size=image_size,
                 in_channels=channels,
+                mean=mean,
+                std=std,
             )
             if self.image_encoder.embed_dim != cfg.fusion.embed_dim:
                 raise ValueError(
@@ -87,6 +94,13 @@ class BN5212Model(nn.Module):
                 num_timesteps=num_timesteps,
             )
             num_clinical_tokens = self.clinical_encoder.num_tokens
+            if cfg.clinical_encoder.pretrained and load_pretrained:
+                from .pretrain import load_pretrained_encoder
+
+                load_pretrained_encoder(self.clinical_encoder, cfg.clinical_encoder)
+            if cfg.clinical_encoder.freeze:
+                for parameter in self.clinical_encoder.parameters():
+                    parameter.requires_grad_(False)
 
         self.fusion: FusionModule = build_fusion(
             cfg.fusion,
@@ -110,6 +124,14 @@ class BN5212Model(nn.Module):
         )
         self.num_image_tokens = num_image_tokens
         self.num_clinical_tokens = num_clinical_tokens
+
+    def train(self, mode: bool = True) -> "BN5212Model":
+        super().train(mode)
+        # A frozen encoder is a fixed feature extractor; its dropout stays off so
+        # the tokens the fusion trains on are the tokens it is later scored with.
+        if self.clinical_encoder is not None and self.cfg.clinical_encoder.freeze:
+            self.clinical_encoder.eval()
+        return self
 
     def _drop_modality(
         self, tokens: torch.Tensor, probability: float, mask: torch.Tensor | None = None
@@ -168,13 +190,6 @@ class BN5212Model(nn.Module):
     def predict_logits(self, batch: Mapping[str, Any]) -> torch.Tensor:
         return self.forward(batch)
 
-    def num_parameters(self, trainable_only: bool = True) -> int:
-        return sum(
-            parameter.numel()
-            for parameter in self.parameters()
-            if parameter.requires_grad or not trainable_only
-        )
-
     def parameter_counts(self) -> dict[str, int]:
         """Per-branch parameter counts, for the size-vs-performance comparison."""
 
@@ -197,6 +212,9 @@ def build_model(
     channels: int = 1,
     num_variables: int = 0,
     num_timesteps: int = 0,
+    mean: Sequence[float] = (0.5,),
+    std: Sequence[float] = (0.5,),
+    load_pretrained: bool = True,
 ) -> BN5212Model:
     return BN5212Model(
         cfg,
@@ -204,6 +222,9 @@ def build_model(
         channels=channels,
         num_variables=num_variables,
         num_timesteps=num_timesteps,
+        mean=mean,
+        std=std,
+        load_pretrained=load_pretrained,
     )
 
 
@@ -246,12 +267,20 @@ def load_checkpoint(
         )
     cfg = config_from_dict(payload["config"])
     geometry = payload.get("geometry") or {}
+    channels = int(geometry.get("channels", 1))
     model = build_model(
         cfg,
         image_size=int(geometry.get("image_size", 224)),
-        channels=int(geometry.get("channels", 1)),
+        channels=channels,
         num_variables=int(geometry.get("num_variables", 0)),
         num_timesteps=int(geometry.get("num_timesteps", 0)),
+        # Older checkpoints predate the recorded statistics; fall back to a
+        # per-channel default so their buffer shapes still line up.
+        mean=geometry.get("mean") or [0.5] * channels,
+        std=geometry.get("std") or [0.5] * channels,
+        # The state dict below already holds the encoder, so a checkpoint stays
+        # loadable on a machine that does not have the pretraining file.
+        load_pretrained=False,
     )
     model.load_state_dict(payload["state_dict"])
     return model, payload

@@ -1,19 +1,11 @@
-"""MeTra's fusion: one shared self-attention space over both modalities.
-
-Reproduces the fusion described in Sec. 6.3 of the project plan and in the MeTra
-paper (Nature Scientific Reports 2023, s41598-023-37835-1):
+"""MeTra's fusion: joint self-attention over both modalities.
 
     Z = [CLS; I; C] + learnable positional embeddings
-    Z' = TransformerEncoder(Z)          # multi-head self-attention
+    Z' = TransformerEncoder(Z)
     prediction = head(Z'[CLS])
 
-Because attention runs over the concatenated sequence, all four interactions
-happen in the same weights and are not separable: image->image,
-clinical->clinical, clinical->image and image->clinical. That entanglement is
-exactly what the proposed cross-attention module is testing against.
-
-This is an independent implementation of the published architecture, not a copy
-of the authors' repository (github.com/FirasGit/MeTra states no license).
+Independent implementation of the published architecture (Sci Rep 2023,
+s41598-023-37835-1), not a copy of the authors' unlicensed repository.
 """
 from __future__ import annotations
 

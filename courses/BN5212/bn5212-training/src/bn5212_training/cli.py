@@ -3,6 +3,8 @@
     bn5212-train      --config configs/cxr_only.json --run-dir <frozen run>
     bn5212-predict    --checkpoint <ckpt> --split test --output test.csv
     bn5212-summarize  outputs/**/summary.csv --output-csv comparison.csv
+    bn5212-crossval   --config configs/clinical_only.json --folds 5
+    bn5212-build-image-cache --run-dir <run> --output cache/images.json
     bn5212-extract-clinical --run-dir <run> --mimic-root <mimic> --output clinical.csv
 """
 from __future__ import annotations
@@ -87,6 +89,106 @@ def predict_main() -> None:
         device=args.device,
     )
     print(path)
+
+
+def build_image_cache_main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Decode every radiograph of a frozen run once into a reusable cache. "
+            "Without it each epoch re-decodes full-resolution DICOMs, which "
+            "dominates multi-fold image runs."
+        )
+    )
+    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--output", required=True, help="Metadata JSON; the array goes beside it")
+    parser.add_argument("--data-pipeline-path")
+    parser.add_argument("--splits", nargs="+", default=["train", "val", "test"])
+    args = parser.parse_args()
+
+    from .cache import build_image_cache
+
+    report = build_image_cache(
+        args.run_dir,
+        args.output,
+        data_pipeline_path=args.data_pipeline_path,
+        splits=args.splits,
+    )
+    print(json.dumps(report, indent=2))
+    print()
+    print(f"Use it with:  --set data.image_cache={report['metadata']}")
+
+
+def crossval_main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Patient-grouped cross-validation over the frozen train+val splits. "
+            "Use this when one split leaves too few events to compare models; "
+            "the frozen test split is not touched."
+        )
+    )
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--run-dir", help="Override data.run_dir")
+    parser.add_argument("--folds", type=int, default=5)
+    parser.add_argument(
+        "--inner-folds",
+        type=int,
+        default=4,
+        help="Inner folds per outer fold; early stopping runs on these, never on the held-out fold",
+    )
+    parser.add_argument("--output-dir")
+    parser.add_argument("--run-id")
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--device")
+    parser.add_argument("--bootstrap-samples", type=int, default=2000)
+    parser.add_argument(
+        "--keep-fold-checkpoints",
+        action="store_true",
+        help="Retain each fold's checkpoints; they repeat a frozen backbone and are large",
+    )
+    parser.add_argument(
+        "--no-final-model",
+        action="store_true",
+        help="Skip the deliverable model fitted on all train+val patients",
+    )
+    parser.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
+    args = parser.parse_args()
+
+    overrides: dict[str, Any] = dict(_parse_override(item) for item in args.set)
+    if args.run_dir:
+        overrides["data.run_dir"] = args.run_dir
+    if args.seed is not None:
+        overrides["seed"] = args.seed
+    if args.device:
+        overrides["device"] = args.device
+
+    cfg = load_config(args.config, overrides)
+    from .crossval import run_cross_validation
+
+    result = run_cross_validation(
+        cfg,
+        n_splits=args.folds,
+        inner_splits=args.inner_folds,
+        output_dir=args.output_dir,
+        run_id=args.run_id,
+        bootstrap_samples=args.bootstrap_samples,
+        keep_fold_checkpoints=args.keep_fold_checkpoints,
+        train_final_model=not args.no_final_model,
+    )
+    pooled = result["pooled"]
+    interval = pooled["auroc_ci"]
+    print()
+    print(f"out-of-fold n={pooled['n']}  positives={pooled['n_positive']}")
+    print(f"AUROC {pooled['auroc']:.3f}  95% CI [{interval['lower']:.3f}, {interval['upper']:.3f}]")
+    print(f"AUPRC {pooled['auprc']:.3f}   Brier {pooled['brier']:.3f}")
+    print()
+    print(f"Run directory: {result['run_dir']}")
+    if result.get("final_model"):
+        print(f"Deliverable checkpoint: {result['final_model']['checkpoint']}")
+        print("Hand these to benchmark-evaluation:")
+        print(f"  val:  {Path(result['run_dir']) / 'predictions_val.csv'}  (out-of-fold)")
+        print(f"  test: {result['final_model']['test_predictions']}")
+        print(f"  fitted on {result['final_model']['patients']} patients "
+              f"for {result['final_model']['epochs']} epochs")
 
 
 def extract_clinical_main() -> None:

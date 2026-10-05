@@ -4,9 +4,7 @@
             clinical_tokens=[B,M,D] | None,
             clinical_mask=[B,M] | None) -> [B, output_dim]
 
-Unimodal experiments pass None for the modality they do not use, so the exact
-same encoders, prediction head, loss and training loop serve all four
-experiments in the project plan. Only the fusion module changes.
+Unimodal experiments pass None for the modality they do not use.
 """
 from __future__ import annotations
 

@@ -1,12 +1,7 @@
 """PNG figures and plain-text tables for a training run.
 
-Deliberately no HTML report: the benchmark project owns the reported results, and
-this module only produces the diagnostics a training run needs. Everything it
-draws is also written as CSV next to it, so every figure has a table view.
-
-Figures are validation-only. Test predictions are exported for the benchmark, but
-nothing here plots or scores the test split, which keeps validation-based model
-selection genuinely separate from the final evaluation.
+Every figure is also written as CSV next to it. Nothing here plots or scores
+the test split.
 """
 from __future__ import annotations
 
@@ -22,6 +17,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 from matplotlib.ticker import MaxNLocator  # noqa: E402
+
+from .metrics import auroc as rank_auroc  # noqa: E402
 
 # Validated categorical slots, assigned in fixed order and never cycled.
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
@@ -69,6 +66,7 @@ def training_curves(history: Sequence[Mapping[str, float]], path: str | Path) ->
     than a second y-axis on one plot.
     """
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     frame = pd.DataFrame(list(history))
     figure, (top, bottom) = plt.subplots(2, 1, figsize=(7.5, 6.4), sharex=True)
     epochs = frame["epoch"]
@@ -134,6 +132,7 @@ def _roc_points(labels: np.ndarray, scores: np.ndarray) -> tuple[np.ndarray, np.
 
 def roc_curve(labels: np.ndarray, scores: np.ndarray, path: str | Path, *, auroc=None) -> Path:
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     labels = np.asarray(labels).astype(int)
     scores = np.asarray(scores, dtype=float)
     false_positive, true_positive = _roc_points(labels, scores)
@@ -151,10 +150,53 @@ def roc_curve(labels: np.ndarray, scores: np.ndarray, path: str | Path, *, auroc
     return _save(figure, path)
 
 
+def roc_comparison(
+    curves: Mapping[str, tuple[np.ndarray, np.ndarray]], path: str | Path, *, title: str
+) -> Path:
+    """ROC curves of several models scored on the same samples, on one axis.
+
+    curves maps a model name to its (labels, scores). The palette has four
+    validated slots and they are never cycled, so a fifth model is rejected
+    rather than given a generated colour.
+    """
+    if len(curves) > len(SERIES):
+        raise ValueError(f"At most {len(SERIES)} curves fit one figure; split the comparison")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    figure, axes = plt.subplots(figsize=(6.0, 5.4))
+    axes.plot([0, 1], [0, 1], color=TEXT_MUTED, linewidth=1.0, linestyle=(0, (4, 4)))
+    points = []
+    for index, (name, (labels, scores)) in enumerate(curves.items()):
+        labels = np.asarray(labels).astype(int)
+        scores = np.asarray(scores, dtype=float)
+        false_positive, true_positive = _roc_points(labels, scores)
+        # Computed here from the same scores, so the legend cannot drift from
+        # the curve; rank-based, which is what the result tables report.
+        axes.plot(
+            false_positive, true_positive, color=SERIES[index], linewidth=LINE_WIDTH,
+            label=f"{name}  (AUROC {rank_auroc(labels, scores):.3f})",
+        )
+        points.append(pd.DataFrame({
+            "model": name,
+            "false_positive_rate": false_positive,
+            "true_positive_rate": true_positive,
+        }))
+    _style_axes(axes, title, "False positive rate", "True positive rate")
+    axes.set_xlim(-0.02, 1.02)
+    axes.set_ylim(-0.02, 1.02)
+    axes.legend(frameon=False, fontsize=8, labelcolor=TEXT_SECONDARY, loc="lower right")
+    pd.concat(points, ignore_index=True).to_csv(
+        path.with_suffix(".csv"), index=False, lineterminator="\n"
+    )
+    return _save(figure, path)
+
+
 def precision_recall_curve(
     labels: np.ndarray, scores: np.ndarray, path: str | Path, *, auprc=None
 ) -> Path:
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     labels = np.asarray(labels).astype(int)
     scores = np.asarray(scores, dtype=float)
     order = np.argsort(-scores, kind="mergesort")
@@ -191,6 +233,7 @@ def precision_recall_curve(
 def score_distribution(labels: np.ndarray, scores: np.ndarray, path: str | Path) -> Path:
     """Predicted probability by true outcome - shows separation and calibration drift."""
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     labels = np.asarray(labels).astype(int)
     scores = np.asarray(scores, dtype=float)
     bins = np.linspace(0.0, 1.0, 21)
@@ -226,6 +269,7 @@ def attention_matrix(
     image patch, so a row shows where that variable looked.
     """
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     weights = np.asarray(weights, dtype=float)
     if weights.ndim != 2:
         raise ValueError(f"Expected a 2D [variables, patches] matrix, got {weights.shape}")
@@ -316,6 +360,71 @@ def attention_patch_maps(
     figure.savefig(path, dpi=160, facecolor=SURFACE)
     plt.close(figure)
     return path
+
+
+def interval_comparison(
+    rows: Sequence[Mapping[str, object]],
+    path: str | Path,
+    *,
+    title: str,
+    xlabel: str,
+    reference: float | None = 0.5,
+    reference_label: str = "chance",
+) -> Path:
+    """One estimate with its interval per model, on a shared axis.
+
+    rows carry label, estimate, lower and upper.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(list(rows))
+    positions = np.arange(len(frame))[::-1]
+
+    figure, axes = plt.subplots(figsize=(7.6, 0.62 * len(frame) + 1.5))
+    if reference is not None:
+        axes.axvline(reference, color=TEXT_MUTED, linewidth=1.0)
+        axes.annotate(
+            reference_label,
+            xy=(reference, 1.0),
+            xycoords=("data", "axes fraction"),
+            xytext=(4, -10),
+            textcoords="offset points",
+            color=TEXT_MUTED,
+            fontsize=7.5,
+        )
+    axes.hlines(
+        positions, frame["lower"], frame["upper"], color=SERIES[0], linewidth=LINE_WIDTH,
+        capstyle="round",
+    )
+    axes.plot(
+        frame["estimate"], positions, linestyle="none", marker="o", color=SERIES[0],
+        markersize=MARKER_SIZE + 2.5, markeredgecolor=SURFACE, markeredgewidth=1.5,
+    )
+    low = min(float(frame["lower"].min()), reference if reference is not None else np.inf)
+    high = float(frame["upper"].max())
+    pad = 0.04 * (high - low)
+    # Room on the right for the value labels, which stay in text ink.
+    axes.set_xlim(low - pad, high + 0.42 * (high - low))
+    for position, record in zip(positions, frame.to_dict(orient="records")):
+        axes.annotate(
+            f"{record['estimate']:.3f}  [{record['lower']:.3f}, {record['upper']:.3f}]",
+            xy=(high, position),
+            xytext=(10, 0),
+            textcoords="offset points",
+            va="center",
+            color=TEXT_SECONDARY,
+            fontsize=8,
+        )
+    _style_axes(axes, title, xlabel, "")
+    # The label gutter is not part of the scale, so it carries no ticks or grid.
+    axes.set_xticks([tick for tick in axes.get_xticks() if low - pad <= tick <= high + pad])
+    axes.set_yticks(positions)
+    axes.set_yticklabels(frame["label"], color=TEXT_PRIMARY, fontsize=9)
+    axes.set_ylim(-0.6, len(frame) - 0.4)
+    axes.grid(False, axis="y")
+
+    frame.to_csv(path.with_suffix(".csv"), index=False, lineterminator="\n")
+    return _save(figure, path)
 
 
 def write_summary_table(rows: Sequence[Mapping[str, object]], path: str | Path) -> Path:

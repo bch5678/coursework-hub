@@ -1,10 +1,6 @@
 """Simple late fusion: pool each modality, concatenate, then one MLP.
 
-This is the "simple multimodal fusion" reference the benchmark plan asks for. It
-sits between the unimodal baselines and the attention-based strategies: it lets
-the two modalities contribute additively but models no token-level interaction
-at all. If cross-attention cannot beat this, the interaction mechanism is not
-what is helping.
+The reference that attention-based fusion has to beat.
 """
 from __future__ import annotations
 

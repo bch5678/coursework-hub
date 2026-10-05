@@ -201,3 +201,146 @@ def test_the_same_seed_reproduces_the_same_predictions(base_config, tmp_path):
     left = pd.read_csv(Path(first["run_dir"]) / "predictions_test.csv")
     right = pd.read_csv(Path(second["run_dir"]) / "predictions_test.csv")
     assert left["y_score"].to_numpy() == pytest.approx(right["y_score"].to_numpy(), abs=1e-6)
+
+
+# --- DataLoader workers ---------------------------------------------------
+# On Windows a worker starts by spawn and unpickles the dataset from scratch, so
+# it must be able to *import* the pipeline package rather than inherit it from a
+# sys.modules entry the parent made. These cover both modality paths.
+
+
+@pytest.mark.parametrize(
+    "modalities,fusion,load_image",
+    [(["clinical"], "clinical_only", False), (["cxr"], "image_only", True)],
+)
+def test_dataloader_workers_can_unpickle_the_dataset(
+    base_config, modalities, fusion, load_image
+):
+    from torch.utils.data import DataLoader
+
+    from bn5212_training.clinical import build_provider
+    from bn5212_training.data import TrainingDataset, seed_worker
+
+    cfg = _configure(
+        base_config, experiment="workers", modalities=modalities, fusion=fusion
+    )
+    provider = build_provider(cfg.data) if cfg.uses_clinical else None
+    dataset = TrainingDataset(
+        cfg.data.run_dir, "val", provider=provider, load_image=load_image
+    )
+    loader = DataLoader(
+        dataset, batch_size=2, num_workers=2, shuffle=False, worker_init_fn=seed_worker
+    )
+    batches = [batch for batch in loader]
+    assert batches, "worker processes produced no batches"
+    assert sum(len(b["sample_id"]) for b in batches) == len(dataset)
+
+
+def test_the_pipeline_package_is_importable_not_just_preloaded():
+    """A spawned worker imports it; a sys.modules entry alone would not survive."""
+    import importlib
+    import sys
+
+    from bn5212_training import upstream
+
+    sys.modules.pop(upstream.PACKAGE_ALIAS, None)
+    for name in [n for n in sys.modules if n.startswith(upstream.PACKAGE_ALIAS + ".")]:
+        sys.modules.pop(name, None)
+    module = importlib.import_module(f"{upstream.PACKAGE_ALIAS}.data.dataset")
+    assert hasattr(module, "MimicCXRDataset")
+
+
+# --- checkpoint selection and warmup --------------------------------------
+
+
+def test_warmup_epochs_cannot_win_the_checkpoint(base_config, tmp_path):
+    """A noisy validation split can hand its best score to a barely-trained epoch.
+
+    During warmup the learning rate is still ramping, so those epochs are not
+    comparable with the rest; selecting one freezes an undertrained model.
+    """
+    payload = json.loads(json.dumps(base_config))
+    payload["experiment"] = "warmup"
+    payload["modalities"] = ["clinical"]
+    payload["fusion"] = {"name": "clinical_only", "embed_dim": 32, "pooling": "mean"}
+    payload["optim"] = {
+        "epochs": 8,
+        "warmup_epochs": 4,
+        "early_stopping_patience": 20,
+    }
+    payload["selection_metric"] = "loss"
+    cfg = config_from_dict(payload)
+
+    result = train(cfg, output_dir=tmp_path, run_id="unit")
+    selected = result["validation_metrics"]["selected_epoch"]
+    # Epoch numbers are 1-based, so warmup covers epochs 1..4.
+    assert selected > cfg.optim.warmup_epochs, f"selected epoch {selected} is inside warmup"
+
+
+def test_selection_threshold_can_be_set_explicitly(base_config, tmp_path):
+    payload = json.loads(json.dumps(base_config))
+    payload["experiment"] = "warmup_explicit"
+    payload["modalities"] = ["clinical"]
+    payload["fusion"] = {"name": "clinical_only", "embed_dim": 32, "pooling": "mean"}
+    payload["optim"] = {
+        "epochs": 10,
+        "warmup_epochs": 0,
+        "min_epochs_before_selection": 6,
+        "early_stopping_patience": 20,
+    }
+    payload["selection_metric"] = "loss"
+    cfg = config_from_dict(payload)
+
+    result = train(cfg, output_dir=tmp_path, run_id="unit")
+    assert result["validation_metrics"]["selected_epoch"] > 6
+
+
+def test_checkpoint_round_trip_restores_encoder_buffers(base_config, tmp_path):
+    """An encoder can hold the normalisation as a buffer sized by the channels.
+
+    Rebuilding from the checkpoint therefore has to know those statistics, or
+    load_state_dict fails on a shape mismatch the moment the run is not
+    single-channel.
+    """
+    from bn5212_training.model import load_checkpoint, save_checkpoint
+
+    cfg = _configure(
+        base_config, experiment="buffers", modalities=["cxr"], fusion="image_only"
+    )
+    model = build_model(
+        cfg, image_size=32, channels=1, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+    geometry = {
+        "image_size": 32, "channels": 1, "num_variables": 0, "num_timesteps": 0,
+        "mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225],
+    }
+    path = tmp_path / "checkpoint.pt"
+    save_checkpoint(path, model, epoch=1, geometry=geometry)
+
+    restored, payload = load_checkpoint(path)
+    assert payload["geometry"]["mean"] == [0.485, 0.456, 0.406]
+    for (name, original), (_, copy) in zip(
+        model.state_dict().items(), restored.state_dict().items()
+    ):
+        assert original.shape == copy.shape, name
+
+
+def test_checkpoints_without_recorded_statistics_still_load(base_config, tmp_path):
+    """Checkpoints written before the statistics were recorded stay loadable."""
+    import torch
+
+    from bn5212_training.model import load_checkpoint, save_checkpoint
+
+    cfg = _configure(
+        base_config, experiment="legacy", modalities=["cxr"], fusion="image_only"
+    )
+    model = build_model(cfg, image_size=32, channels=1)
+    path = tmp_path / "legacy.pt"
+    save_checkpoint(path, model, epoch=1, geometry={"image_size": 32, "channels": 1})
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload["geometry"].pop("mean", None)
+    payload["geometry"].pop("std", None)
+    torch.save(payload, path)
+
+    restored, _ = load_checkpoint(path)
+    assert restored is not None

@@ -25,6 +25,8 @@ bn5212-train = "bn5212_training.cli:train_main"
 bn5212-predict = "bn5212_training.cli:predict_main"
 bn5212-summarize = "bn5212_training.cli:summarize_main"
 bn5212-extract-clinical = "bn5212_training.cli:extract_clinical_main"
+bn5212-crossval = "bn5212_training.cli:crossval_main"
+bn5212-build-image-cache = "bn5212_training.cli:build_image_cache_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

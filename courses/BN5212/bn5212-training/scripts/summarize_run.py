@@ -1,9 +1,4 @@
-"""Print the cohort a pipeline run produced.
-
-Run this right after the pipeline finishes. The event count it reports is what
-decides how strong a conclusion the experiments can support: AUROC computed on a
-handful of positives carries a confidence interval far wider than the effect
-sizes this project is trying to separate.
+"""Print the cohort a pipeline run produced: rows, patients and deaths per split.
 
     python scripts/summarize_run.py <run_dir>
 """

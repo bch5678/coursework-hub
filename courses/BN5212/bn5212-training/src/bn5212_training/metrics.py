@@ -1,12 +1,7 @@
-"""Validation metrics used for checkpoint and early-stopping decisions.
+"""Validation metrics for checkpoint selection and cross-validation.
 
-SCOPE: selection only. The reported benchmark numbers -- test metrics, confidence
-intervals, threshold selection, admission-level aggregation -- come from the
-benchmark-evaluation project, which is the single source of truth for results.
-Computing them twice would invite two different tables in the final report, so
-this module deliberately stays minimal and never touches the test split.
-
-Implemented in numpy so the training project needs no scikit-learn.
+Test metrics come from the benchmark-evaluation project; this module never
+touches the test split. Implemented in numpy, so no scikit-learn is needed.
 """
 from __future__ import annotations
 
@@ -77,6 +72,101 @@ def selection_metrics(labels: np.ndarray, scores: np.ndarray) -> dict[str, float
         "prevalence": float(labels.mean()) if len(labels) else None,
         "n": int(len(labels)),
         "n_positive": int((labels == 1).sum()),
+    }
+
+
+def bootstrap_interval(
+    labels: np.ndarray,
+    scores: np.ndarray,
+    groups: np.ndarray,
+    *,
+    metric: str = "auroc",
+    samples: int = 2000,
+    seed: int = 5212,
+    confidence: float = 0.95,
+) -> dict[str, float | int | None]:
+    """Patient-level bootstrap interval for a ranking metric.
+
+    Patients are resampled, not rows. Replicates holding a single class are
+    skipped, and the number of usable replicates is returned.
+    """
+    function = {"auroc": auroc, "auprc": auprc}.get(metric)
+    if function is None:
+        raise ValueError(f"Unsupported bootstrap metric {metric!r}")
+    labels = np.asarray(labels).astype(int)
+    scores = np.asarray(scores, dtype=np.float64)
+    groups = np.asarray(groups, dtype=object)
+
+    unique = np.unique(groups)
+    rows_of = {key: np.flatnonzero(groups == key) for key in unique}
+    generator = np.random.default_rng(seed)
+    estimates = []
+    for _ in range(int(samples)):
+        drawn = generator.choice(unique, size=len(unique), replace=True)
+        index = np.concatenate([rows_of[key] for key in drawn])
+        value = function(labels[index], scores[index])
+        if value is not None:
+            estimates.append(value)
+
+    point = function(labels, scores)
+    if not estimates:
+        return {"estimate": point, "lower": None, "upper": None, "replicates": 0}
+    tail = (1.0 - confidence) / 2.0
+    return {
+        "estimate": point,
+        "lower": float(np.quantile(estimates, tail)),
+        "upper": float(np.quantile(estimates, 1.0 - tail)),
+        "replicates": len(estimates),
+    }
+
+
+def paired_bootstrap_difference(
+    labels: np.ndarray,
+    scores_a: np.ndarray,
+    scores_b: np.ndarray,
+    groups: np.ndarray,
+    *,
+    metric: str = "auroc",
+    samples: int = 2000,
+    seed: int = 5212,
+    confidence: float = 0.95,
+) -> dict[str, float | int | None]:
+    """Patient-level bootstrap interval for metric(a) - metric(b).
+
+    Both models are scored on the same resampled patients in every replicate.
+    """
+    function = {"auroc": auroc, "auprc": auprc}.get(metric)
+    if function is None:
+        raise ValueError(f"Unsupported bootstrap metric {metric!r}")
+    labels = np.asarray(labels).astype(int)
+    scores_a = np.asarray(scores_a, dtype=np.float64)
+    scores_b = np.asarray(scores_b, dtype=np.float64)
+    groups = np.asarray(groups, dtype=object)
+    if not (len(labels) == len(scores_a) == len(scores_b) == len(groups)):
+        raise ValueError("labels, both score arrays and groups must be aligned row by row")
+
+    unique = np.unique(groups)
+    rows_of = {key: np.flatnonzero(groups == key) for key in unique}
+    generator = np.random.default_rng(seed)
+    differences = []
+    for _ in range(int(samples)):
+        drawn = generator.choice(unique, size=len(unique), replace=True)
+        index = np.concatenate([rows_of[key] for key in drawn])
+        first = function(labels[index], scores_a[index])
+        second = function(labels[index], scores_b[index])
+        if first is not None and second is not None:
+            differences.append(first - second)
+
+    whole_a, whole_b = function(labels, scores_a), function(labels, scores_b)
+    point = None if whole_a is None or whole_b is None else whole_a - whole_b
+    if not differences:
+        return {"estimate": point, "lower": None, "upper": None, "replicates": 0}
+    tail = (1.0 - confidence) / 2.0
+    return {
+        "estimate": point,
+        "lower": float(np.quantile(differences, tail)),
+        "upper": float(np.quantile(differences, 1.0 - tail)),
+        "replicates": len(differences),
     }
 
 

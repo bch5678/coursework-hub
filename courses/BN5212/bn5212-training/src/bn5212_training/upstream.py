@@ -1,9 +1,7 @@
-"""Import the frozen data pipeline without installing it or shadowing `src`.
+"""Import the frozen data pipeline without installing it.
 
-The sibling project bn5212-data-pipeline exposes its code as a top-level `src`
-package, which would collide with this project's own `src` directory. We load it
-under the private name `bn5212_pipeline` instead, so relative imports inside the
-pipeline keep resolving while nothing global is renamed.
+The pipeline exposes a top-level `src` package that would collide with this
+project's own `src`, so it is loaded under the private name `bn5212_pipeline`.
 """
 from __future__ import annotations
 
@@ -47,11 +45,45 @@ def data_pipeline_root(explicit: str | os.PathLike[str] | None = None) -> Path:
     )
 
 
+class _PipelineFinder:
+    """Makes `bn5212_pipeline` importable by the normal machinery.
+
+    A DataLoader worker on Windows starts by spawn and must import the pipeline
+    itself, so a sys.modules entry alone is not enough.
+    """
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != PACKAGE_ALIAS:
+            return None  # submodules resolve through the package search locations
+        try:
+            src_dir = data_pipeline_root() / "src"
+        except FileNotFoundError:
+            return None
+        return importlib.util.spec_from_file_location(
+            PACKAGE_ALIAS,
+            src_dir / "__init__.py",
+            submodule_search_locations=[str(src_dir)],
+        )
+
+
+def _install_finder() -> None:
+    if not any(isinstance(finder, _PipelineFinder) for finder in sys.meta_path):
+        sys.meta_path.append(_PipelineFinder())
+
+
+# Installed at import time so that a spawned worker, which imports this module
+# while unpickling the dataset, can resolve the pipeline package too.
+_install_finder()
+
+
 def load_pipeline(explicit: str | os.PathLike[str] | None = None) -> ModuleType:
     """Load and cache the pipeline package under the PACKAGE_ALIAS name."""
     if PACKAGE_ALIAS in sys.modules:
         return sys.modules[PACKAGE_ALIAS]
     src_dir = data_pipeline_root(explicit) / "src"
+    # Record the resolved root so spawned workers find the same checkout even when
+    # they are started from a different working directory.
+    os.environ.setdefault(ENV_VAR, str(src_dir.parent))
     spec = importlib.util.spec_from_file_location(
         PACKAGE_ALIAS,
         src_dir / "__init__.py",
