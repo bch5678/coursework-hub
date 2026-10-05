@@ -410,3 +410,19 @@ def test_a_fifth_curve_is_rejected_rather_than_given_a_generated_colour(tmp_path
     with pytest.raises(ValueError, match="At most"):
         plots.roc_comparison({str(i): (labels, scores) for i in range(5)},
                              tmp_path / "roc.png", title="t")
+
+
+def test_confusion_matrices_are_drawn_with_their_counts(tmp_path):
+    from bn5212_training import plots
+
+    panels = [
+        ("model A\ncross-validation, n=20", {"tn": 12, "fp": 3, "fn": 2, "tp": 3, "sensitivity": 0.6}),
+        ("model A\ntest, n=5", {"tn": 3, "fp": 1, "fn": 0, "tp": 1}),
+        ("model B\ncross-validation, n=20", {"tn": 10, "fp": 5, "fn": 3, "tp": 2}),
+    ]
+    path = plots.confusion_matrices(panels, tmp_path / "confusion.png", columns=2, title="t")
+    assert path.is_file() and path.stat().st_size > 0
+    table = pd.read_csv(path.with_suffix(".csv"))
+    # Counts only: rates passed along with a panel are not written twice.
+    assert list(table.columns) == ["panel", "tn", "fp", "fn", "tp"]
+    assert table.loc[0, ["tn", "fp", "fn", "tp"]].tolist() == [12, 3, 2, 3]

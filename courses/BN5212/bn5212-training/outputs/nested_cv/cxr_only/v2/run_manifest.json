@@ -1,0 +1,238 @@
+{
+  "created_utc": "2026-10-04T07:05:21.963747+00:00",
+  "experiment": "cxr_only",
+  "seed": 5212,
+  "config_fingerprint": "752c75ac4a6f904a2ab5dc04a9343e6cad359a5ba55cc022cf3664e9527c0559",
+  "config": {
+    "experiment": "cxr_only",
+    "modalities": [
+      "cxr"
+    ],
+    "data": {
+      "run_dir": "data/runs/icu_mortality_v1",
+      "data_pipeline_path": null,
+      "batch_size": 16,
+      "num_workers": 0,
+      "image_cache": "data/cache/icu_images.json",
+      "clinical_provider": "table",
+      "clinical_source": "data/clinical_features.csv",
+      "clinical_timesteps": 48,
+      "clinical_window_hours": null,
+      "clinical_signal": 0.0
+    },
+    "image_encoder": {
+      "name": "timm_vit",
+      "embed_dim": 768,
+      "patch_size": 16,
+      "depth": 6,
+      "num_heads": 3,
+      "mlp_ratio": 4.0,
+      "dropout": 0.1,
+      "pretrained": true,
+      "timm_model": "vit_base_patch16_224",
+      "freeze": true,
+      "project_to": 64,
+      "xrv_weights": "densenet121-res224-chex",
+      "unfreeze_last_blocks": 0
+    },
+    "clinical_encoder": {
+      "name": "linear_projection",
+      "tokenization": "per_variable",
+      "embed_dim": 192,
+      "hidden_dim": 256,
+      "dropout": 0.0,
+      "missing_indicator": true
+    },
+    "augmentation": {
+      "enabled": true,
+      "crop_scale_min": 0.85,
+      "crop_scale_max": 1.0,
+      "rotation_degrees": 10.0,
+      "brightness": 0.15,
+      "contrast": 0.15,
+      "horizontal_flip": false
+    },
+    "fusion": {
+      "name": "image_only",
+      "embed_dim": 64,
+      "depth": 2,
+      "num_heads": 3,
+      "mlp_ratio": 4.0,
+      "dropout": 0.2,
+      "pooling": "cls",
+      "residual": true,
+      "direction": "clinical_to_image"
+    },
+    "head": {
+      "hidden_dim": 0,
+      "dropout": 0.2,
+      "num_outputs": 1
+    },
+    "optim": {
+      "epochs": 100,
+      "lr": 0.001,
+      "weight_decay": 0.1,
+      "warmup_epochs": 5,
+      "scheduler": "cosine",
+      "grad_clip": 1.0,
+      "grad_accumulation_steps": 1,
+      "amp": true,
+      "positive_class_weight": null,
+      "use_sample_weight": true,
+      "early_stopping_patience": 15,
+      "min_epochs_before_selection": null,
+      "backbone_lr": null,
+      "min_lr": 1e-06,
+      "image_dropout_prob": 0.0,
+      "clinical_dropout_prob": 0.0
+    },
+    "seed": 5212,
+    "device": "cuda",
+    "selection_metric": "loss",
+    "output_dir": "outputs",
+    "notes": "Experiment 2. Frozen ImageNet ViT-B/16 projected to the fusion width. ICU cohort, n=198, 31 events; fusion width 64."
+  },
+  "git_commit": "2694fb834f730ead47831d2ed78e4fb98996183a",
+  "git_dirty": true,
+  "dataset": {
+    "run_dir": "C:\\Users\\cyjch\\Documents\\GitHub\\coursework-hub\\courses\\BN5212\\bn5212-training\\data\\runs\\icu_mortality_v1",
+    "schema_version": "1.0",
+    "task": "in_hospital_mortality",
+    "index_sha256": "5aef965fd6ed83e017b18be769c030744387bcff47cc0caa2479c1387079e943",
+    "split_seed": 5212,
+    "split_unit": "subject_id",
+    "dataset_versions": {
+      "mimic_iv": "3.1",
+      "mimic_cxr": "2.1.0"
+    },
+    "loader": {
+      "image_size": 224,
+      "channels": 3,
+      "batch_size": 8,
+      "num_workers": 4,
+      "mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "std": [
+        0.229,
+        0.224,
+        0.225
+      ]
+    },
+    "index_sha256_recomputed": "5aef965fd6ed83e017b18be769c030744387bcff47cc0caa2479c1387079e943"
+  },
+  "environment": {
+    "python": "3.13.13",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "torch": "2.11.0+cu128",
+    "cuda_available": true,
+    "cuda_device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "numpy": "2.5.2"
+  },
+  "run_id": "v2",
+  "evaluation": "patient-grouped cross-validation over train+val",
+  "n_splits": 5,
+  "inner_splits": 4,
+  "selection": "inner folds of the fitting patients choose the epoch budget; the held-out fold is scored by a refit on all fitting patients",
+  "fold_sizes": [
+    28,
+    28,
+    27,
+    27,
+    26
+  ],
+  "pooled_metrics": {
+    "auroc": 0.5517241379310345,
+    "auprc": 0.19032933899929824,
+    "brier": 0.13765676794159343,
+    "prevalence": 0.1569767441860465,
+    "n": 172,
+    "n_positive": 27,
+    "auroc_ci": {
+      "estimate": 0.5517241379310345,
+      "lower": 0.432268189617544,
+      "upper": 0.6794898283534647,
+      "replicates": 2000
+    },
+    "auprc_ci": {
+      "estimate": 0.19032933899929824,
+      "lower": 0.11543489831485917,
+      "upper": 0.3037051211130969,
+      "replicates": 2000
+    }
+  },
+  "per_fold": [
+    {
+      "fold": 0,
+      "held_out_patients": 28,
+      "scored_rows": 42,
+      "positives": 6,
+      "auroc": 0.48148148148148145,
+      "auprc": 0.1589140570758218,
+      "brier": 0.12925547215403027,
+      "loss": 0.4478229378696462,
+      "selected_epoch": 10,
+      "inner_selected_epochs": "6/11/8/16"
+    },
+    {
+      "fold": 1,
+      "held_out_patients": 28,
+      "scored_rows": 36,
+      "positives": 5,
+      "auroc": 0.6580645161290323,
+      "auprc": 0.3047619047619048,
+      "brier": 0.11616424262564812,
+      "loss": 0.3898792404407344,
+      "selected_epoch": 12,
+      "inner_selected_epochs": "9/15/6/18"
+    },
+    {
+      "fold": 2,
+      "held_out_patients": 27,
+      "scored_rows": 32,
+      "positives": 6,
+      "auroc": 0.6217948717948718,
+      "auprc": 0.5039196914196915,
+      "brier": 0.15330865943348493,
+      "loss": 0.48895355822439274,
+      "selected_epoch": 6,
+      "inner_selected_epochs": "6/8/6/6"
+    },
+    {
+      "fold": 3,
+      "held_out_patients": 27,
+      "scored_rows": 33,
+      "positives": 6,
+      "auroc": 0.43209876543209874,
+      "auprc": 0.17762147303743228,
+      "brier": 0.18025822132832658,
+      "loss": 0.5877452179891682,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "7/10/6/7"
+    },
+    {
+      "fold": 4,
+      "held_out_patients": 26,
+      "scored_rows": 29,
+      "positives": 4,
+      "auroc": 0.77,
+      "auprc": 0.35763888888888884,
+      "brier": 0.11075596949155771,
+      "loss": 0.3696811264875785,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "6/7/9/7"
+    }
+  ],
+  "test_split_untouched": true,
+  "fold_checkpoints_kept": false,
+  "final_model": {
+    "run_dir": "outputs\\nested_cv\\cxr_only\\v2\\final_model",
+    "checkpoint": "outputs\\nested_cv\\cxr_only\\v2\\final_model\\checkpoint_best.pt",
+    "epochs": 7,
+    "patients": 136,
+    "test_predictions": "outputs\\nested_cv\\cxr_only\\v2\\predictions_test.csv",
+    "note": "performance comes from the out-of-fold estimate, not from this fit"
+  }
+}

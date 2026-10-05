@@ -452,7 +452,7 @@ forward(image_tokens:    [B, N, D] | None,
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-**165 项测试全部通过**，全部基于合成数据，不读取任何真实或受限数据。覆盖：
+**171 项测试全部通过**，全部基于合成数据，不读取任何真实或受限数据。覆盖：
 
 - 五个 fusion 模块的形状、掩码语义、缺失模态的拒绝行为、cross-attention 三个方向；
 - 临床 provider 的时间截断、缺失掩码不变量、标准化只在 train 拟合、长格式表的错误处理；

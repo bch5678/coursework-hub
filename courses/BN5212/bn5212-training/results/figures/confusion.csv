@@ -1,0 +1,7 @@
+panel,tn,fp,fn,tp
+"Clinical-only | cross-validation, n=172",89,56,10,17
+"CXR-only | cross-validation, n=172",102,43,18,9
+"Clinical + CXR | cross-validation, n=172",79,66,11,16
+"Clinical-only | test, n=26",11,11,0,4
+"CXR-only | test, n=26",7,15,1,3
+"Clinical + CXR | test, n=26",13,9,0,4

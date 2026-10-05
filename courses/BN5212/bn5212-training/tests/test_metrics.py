@@ -9,7 +9,17 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from bn5212_training.metrics import auprc, auroc, brier, is_better, selection_metrics
+from bn5212_training.metrics import (
+    auprc,
+    auroc,
+    brier,
+    confusion_counts,
+    cross_fitted_decisions,
+    decision_summary,
+    is_better,
+    selection_metrics,
+    youden_threshold,
+)
 
 
 def test_perfect_ranking_scores_one():
@@ -71,3 +81,50 @@ def test_missing_candidate_never_wins_and_missing_incumbent_always_loses():
     """An undefined AUROC must not be promoted to best checkpoint."""
     assert not is_better("auroc", None, 0.5)
     assert is_better("auroc", 0.5, None)
+
+
+def test_confusion_counts_treat_a_score_at_the_threshold_as_positive():
+    labels = np.array([0, 0, 1, 1])
+    scores = np.array([0.2, 0.5, 0.5, 0.9])
+    assert confusion_counts(labels, scores, 0.5) == {"tn": 1, "fp": 1, "fn": 0, "tp": 2}
+
+
+def test_youden_threshold_on_a_hand_computed_case():
+    # At 0.6: sensitivity 2/2, specificity 2/3. No other observed score does better.
+    labels = np.array([0, 0, 0, 1, 1])
+    scores = np.array([0.1, 0.3, 0.7, 0.6, 0.9])
+    assert youden_threshold(labels, scores) == 0.6
+
+
+def test_youden_threshold_needs_both_classes():
+    with pytest.raises(ValueError, match="Both classes"):
+        youden_threshold(np.array([0, 0]), np.array([0.1, 0.2]))
+
+
+def test_youden_threshold_agrees_with_the_benchmark_project():
+    """The test split is thresholded by benchmark-evaluation; the rule must match."""
+    benchmark = pytest.importorskip("bn5212_benchmark.metrics")
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        labels = rng.integers(0, 2, 30)
+        labels[:2] = [0, 1]
+        scores = np.round(rng.random(30), 2)  # rounding forces ties
+        assert youden_threshold(labels, scores) == benchmark.choose_threshold(labels, scores)[0]
+
+
+def test_a_folds_own_labels_never_choose_its_threshold():
+    rng = np.random.default_rng(1)
+    labels = np.tile([0, 0, 0, 1], 15)
+    scores = np.clip(0.3 + 0.3 * labels + rng.normal(0, 0.2, 60), 0, 1)
+    folds = np.repeat(np.arange(3), 20)
+
+    decisions = cross_fitted_decisions(labels, scores, folds)
+    flipped = labels.copy()
+    flipped[folds == 0] = 1 - flipped[folds == 0]
+    # Rewriting fold 0's labels changes the other folds' thresholds, not its own.
+    assert np.array_equal(cross_fitted_decisions(flipped, scores, folds)[folds == 0],
+                          decisions[folds == 0])
+
+    summary = decision_summary(labels, decisions)
+    assert summary["tn"] + summary["fp"] + summary["fn"] + summary["tp"] == 60
+    assert summary["sensitivity"] == summary["tp"] / 15

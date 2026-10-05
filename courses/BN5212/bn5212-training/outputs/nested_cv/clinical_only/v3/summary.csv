@@ -1,0 +1,2 @@
+experiment,run_id,n_splits,modalities,fusion,oof_n,oof_positives,oof_auroc,auroc_lower,auroc_upper,oof_auprc,oof_brier,fold_auroc_std
+clinical_only,v3,5,clinical,clinical_only,172,27,0.7254150702426565,0.6292983832046333,0.8154479390563085,0.31178986991031815,0.125044441308406,0.10849010427045652

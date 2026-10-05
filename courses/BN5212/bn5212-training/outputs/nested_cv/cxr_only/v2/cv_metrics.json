@@ -1,0 +1,106 @@
+{
+  "n_splits": 5,
+  "inner_splits": 4,
+  "pooled": {
+    "auroc": 0.5517241379310345,
+    "auprc": 0.19032933899929824,
+    "brier": 0.13765676794159343,
+    "prevalence": 0.1569767441860465,
+    "n": 172,
+    "n_positive": 27,
+    "auroc_ci": {
+      "estimate": 0.5517241379310345,
+      "lower": 0.432268189617544,
+      "upper": 0.6794898283534647,
+      "replicates": 2000
+    },
+    "auprc_ci": {
+      "estimate": 0.19032933899929824,
+      "lower": 0.11543489831485917,
+      "upper": 0.3037051211130969,
+      "replicates": 2000
+    }
+  },
+  "per_fold_spread": {
+    "auroc": {
+      "mean": 0.592687926967497,
+      "std": 0.13667172001820646,
+      "min": 0.43209876543209874,
+      "max": 0.77
+    },
+    "auprc": {
+      "mean": 0.3005712030367479,
+      "std": 0.14125179077253833,
+      "min": 0.1589140570758218,
+      "max": 0.5039196914196915
+    },
+    "brier": {
+      "mean": 0.13794851300660954,
+      "std": 0.02879063795158618,
+      "min": 0.11075596949155771,
+      "max": 0.18025822132832658
+    }
+  },
+  "per_fold": [
+    {
+      "fold": 0,
+      "held_out_patients": 28,
+      "scored_rows": 42,
+      "positives": 6,
+      "auroc": 0.48148148148148145,
+      "auprc": 0.1589140570758218,
+      "brier": 0.12925547215403027,
+      "loss": 0.4478229378696462,
+      "selected_epoch": 10,
+      "inner_selected_epochs": "6/11/8/16"
+    },
+    {
+      "fold": 1,
+      "held_out_patients": 28,
+      "scored_rows": 36,
+      "positives": 5,
+      "auroc": 0.6580645161290323,
+      "auprc": 0.3047619047619048,
+      "brier": 0.11616424262564812,
+      "loss": 0.3898792404407344,
+      "selected_epoch": 12,
+      "inner_selected_epochs": "9/15/6/18"
+    },
+    {
+      "fold": 2,
+      "held_out_patients": 27,
+      "scored_rows": 32,
+      "positives": 6,
+      "auroc": 0.6217948717948718,
+      "auprc": 0.5039196914196915,
+      "brier": 0.15330865943348493,
+      "loss": 0.48895355822439274,
+      "selected_epoch": 6,
+      "inner_selected_epochs": "6/8/6/6"
+    },
+    {
+      "fold": 3,
+      "held_out_patients": 27,
+      "scored_rows": 33,
+      "positives": 6,
+      "auroc": 0.43209876543209874,
+      "auprc": 0.17762147303743228,
+      "brier": 0.18025822132832658,
+      "loss": 0.5877452179891682,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "7/10/6/7"
+    },
+    {
+      "fold": 4,
+      "held_out_patients": 26,
+      "scored_rows": 29,
+      "positives": 4,
+      "auroc": 0.77,
+      "auprc": 0.35763888888888884,
+      "brier": 0.11075596949155771,
+      "loss": 0.3696811264875785,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "6/7/9/7"
+    }
+  ]
+}

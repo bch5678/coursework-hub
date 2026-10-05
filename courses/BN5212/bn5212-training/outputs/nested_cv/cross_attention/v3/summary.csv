@@ -1,0 +1,2 @@
+experiment,run_id,n_splits,modalities,fusion,oof_n,oof_positives,oof_auroc,auroc_lower,auroc_upper,oof_auprc,oof_brier,fold_auroc_std
+cross_attention,v3,5,clinical+cxr,cross_attention,172,27,0.6707535121328225,0.5642052980132451,0.763505493867118,0.27371354031259826,0.14149520658839154,0.11323705756110249

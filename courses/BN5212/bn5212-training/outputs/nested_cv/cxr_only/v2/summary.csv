@@ -1,0 +1,2 @@
+experiment,run_id,n_splits,modalities,fusion,oof_n,oof_positives,oof_auroc,auroc_lower,auroc_upper,oof_auprc,oof_brier,fold_auroc_std
+cxr_only,v2,5,cxr,image_only,172,27,0.5517241379310345,0.432268189617544,0.6794898283534647,0.19032933899929824,0.13765676794159343,0.13667172001820646

@@ -1,0 +1,241 @@
+{
+  "created_utc": "2026-10-04T09:32:30.202011+00:00",
+  "experiment": "cross_attention",
+  "seed": 5212,
+  "config_fingerprint": "ed91f5ea6fce8d20ec5fe5a87ef35fe52c729e74653c7f71e8bbda3eadb9e978",
+  "config": {
+    "experiment": "cross_attention",
+    "modalities": [
+      "clinical",
+      "cxr"
+    ],
+    "data": {
+      "run_dir": "data/runs/icu_mortality_v1",
+      "data_pipeline_path": null,
+      "batch_size": 16,
+      "num_workers": 0,
+      "image_cache": "data/cache/icu_images.json",
+      "clinical_provider": "table",
+      "clinical_source": "data/clinical_features.csv",
+      "clinical_timesteps": 48,
+      "clinical_window_hours": null,
+      "clinical_signal": 0.0
+    },
+    "image_encoder": {
+      "name": "timm_vit",
+      "embed_dim": 768,
+      "patch_size": 16,
+      "depth": 6,
+      "num_heads": 3,
+      "mlp_ratio": 4.0,
+      "dropout": 0.1,
+      "pretrained": true,
+      "timm_model": "vit_base_patch16_224",
+      "freeze": true,
+      "project_to": 64,
+      "xrv_weights": "densenet121-res224-chex",
+      "unfreeze_last_blocks": 0
+    },
+    "clinical_encoder": {
+      "name": "variable_projection",
+      "tokenization": "per_variable",
+      "embed_dim": 64,
+      "hidden_dim": 64,
+      "dropout": 0.3,
+      "missing_indicator": true,
+      "pretrained": "data/pretrain/clinical_v1/variable_projection.pt",
+      "freeze": true
+    },
+    "augmentation": {
+      "enabled": true,
+      "crop_scale_min": 0.85,
+      "crop_scale_max": 1.0,
+      "rotation_degrees": 10.0,
+      "brightness": 0.15,
+      "contrast": 0.15,
+      "horizontal_flip": false
+    },
+    "fusion": {
+      "name": "cross_attention",
+      "embed_dim": 64,
+      "depth": 2,
+      "num_heads": 4,
+      "mlp_ratio": 4.0,
+      "dropout": 0.2,
+      "pooling": "cls",
+      "residual": true,
+      "direction": "clinical_to_image"
+    },
+    "head": {
+      "hidden_dim": 0,
+      "dropout": 0.2,
+      "num_outputs": 1
+    },
+    "optim": {
+      "epochs": 100,
+      "lr": 0.001,
+      "weight_decay": 0.1,
+      "warmup_epochs": 5,
+      "scheduler": "cosine",
+      "grad_clip": 1.0,
+      "grad_accumulation_steps": 1,
+      "amp": true,
+      "positive_class_weight": null,
+      "use_sample_weight": true,
+      "early_stopping_patience": 15,
+      "min_epochs_before_selection": null,
+      "backbone_lr": null,
+      "min_lr": 1e-06,
+      "image_dropout_prob": 0.0,
+      "clinical_dropout_prob": 0.0
+    },
+    "seed": 5212,
+    "device": "cuda",
+    "selection_metric": "loss",
+    "output_dir": "outputs",
+    "notes": "Experiment 4, proposed explicit cross-attention. ICU cohort, n=198, 31 events; fusion width 64. Clinical encoder variable_projection, pretrained on 12,121 ICU stays of patients outside the study cohort (external validation AUROC 0.848, chosen there over linear_projection at 0.791) and frozen, as the image backbone is."
+  },
+  "git_commit": "2694fb834f730ead47831d2ed78e4fb98996183a",
+  "git_dirty": true,
+  "dataset": {
+    "run_dir": "C:\\Users\\cyjch\\Documents\\GitHub\\coursework-hub\\courses\\BN5212\\bn5212-training\\data\\runs\\icu_mortality_v1",
+    "schema_version": "1.0",
+    "task": "in_hospital_mortality",
+    "index_sha256": "5aef965fd6ed83e017b18be769c030744387bcff47cc0caa2479c1387079e943",
+    "split_seed": 5212,
+    "split_unit": "subject_id",
+    "dataset_versions": {
+      "mimic_iv": "3.1",
+      "mimic_cxr": "2.1.0"
+    },
+    "loader": {
+      "image_size": 224,
+      "channels": 3,
+      "batch_size": 8,
+      "num_workers": 4,
+      "mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "std": [
+        0.229,
+        0.224,
+        0.225
+      ]
+    },
+    "index_sha256_recomputed": "5aef965fd6ed83e017b18be769c030744387bcff47cc0caa2479c1387079e943"
+  },
+  "environment": {
+    "python": "3.13.13",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "torch": "2.11.0+cu128",
+    "cuda_available": true,
+    "cuda_device": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "numpy": "2.5.2"
+  },
+  "run_id": "v3",
+  "evaluation": "patient-grouped cross-validation over train+val",
+  "n_splits": 5,
+  "inner_splits": 4,
+  "selection": "inner folds of the fitting patients choose the epoch budget; the held-out fold is scored by a refit on all fitting patients",
+  "fold_sizes": [
+    28,
+    28,
+    27,
+    27,
+    26
+  ],
+  "pooled_metrics": {
+    "auroc": 0.6707535121328225,
+    "auprc": 0.27371354031259826,
+    "brier": 0.14149520658839154,
+    "prevalence": 0.1569767441860465,
+    "n": 172,
+    "n_positive": 27,
+    "auroc_ci": {
+      "estimate": 0.6707535121328225,
+      "lower": 0.5642052980132451,
+      "upper": 0.763505493867118,
+      "replicates": 2000
+    },
+    "auprc_ci": {
+      "estimate": 0.27371354031259826,
+      "lower": 0.1559027335586933,
+      "upper": 0.4379195488922787,
+      "replicates": 2000
+    }
+  },
+  "per_fold": [
+    {
+      "fold": 0,
+      "held_out_patients": 28,
+      "scored_rows": 42,
+      "positives": 6,
+      "auroc": 0.6435185185185185,
+      "auprc": 0.22441520467836257,
+      "brier": 0.1549526686039151,
+      "loss": 0.4796568521029574,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "15/7/6/7"
+    },
+    {
+      "fold": 1,
+      "held_out_patients": 28,
+      "scored_rows": 36,
+      "positives": 5,
+      "auroc": 0.9096774193548387,
+      "auprc": 0.5666666666666667,
+      "brier": 0.11226902447287508,
+      "loss": 0.35468008136266393,
+      "selected_epoch": 8,
+      "inner_selected_epochs": "6/10/13/7"
+    },
+    {
+      "fold": 2,
+      "held_out_patients": 27,
+      "scored_rows": 32,
+      "positives": 6,
+      "auroc": 0.7115384615384616,
+      "auprc": 0.2983469689352043,
+      "brier": 0.1592632218826051,
+      "loss": 0.4945581716911569,
+      "selected_epoch": 6,
+      "inner_selected_epochs": "6/8/7/6"
+    },
+    {
+      "fold": 3,
+      "held_out_patients": 27,
+      "scored_rows": 33,
+      "positives": 6,
+      "auroc": 0.6358024691358025,
+      "auprc": 0.263270140592122,
+      "brier": 0.15047807252512094,
+      "loss": 0.4645975889843746,
+      "selected_epoch": 6,
+      "inner_selected_epochs": "6/8/6/6"
+    },
+    {
+      "fold": 4,
+      "held_out_patients": 26,
+      "scored_rows": 29,
+      "positives": 4,
+      "auroc": 0.78,
+      "auprc": 0.36388888888888893,
+      "brier": 0.12845789921527762,
+      "loss": 0.482598415877557,
+      "selected_epoch": 7,
+      "inner_selected_epochs": "14/6/7/7"
+    }
+  ],
+  "test_split_untouched": true,
+  "fold_checkpoints_kept": false,
+  "final_model": {
+    "run_dir": "outputs\\nested_cv\\cross_attention\\v3\\final_model",
+    "checkpoint": "outputs\\nested_cv\\cross_attention\\v3\\final_model\\checkpoint_best.pt",
+    "epochs": 7,
+    "patients": 136,
+    "test_predictions": "outputs\\nested_cv\\cross_attention\\v3\\predictions_test.csv",
+    "note": "performance comes from the out-of-fold estimate, not from this fit"
+  }
+}

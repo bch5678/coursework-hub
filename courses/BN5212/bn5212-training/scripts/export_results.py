@@ -1,8 +1,9 @@
-"""Export the reported results from local run directories into results/.
+"""Export the final results from local run directories into results/.
 
     python scripts/export_results.py
 
-Only aggregates are written: pooled metrics, intervals, curves and counts. The
+Three models are reported: clinical-only, CXR-only and clinical + CXR. Only
+aggregates are written (pooled metrics, intervals, curves and counts), and the
 export fails if an identifier column would be written. Test-split numbers are
 read from benchmark-evaluation, the only project that scores the test split.
 """
@@ -11,50 +12,22 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Mapping
-
+from typing import Any
 
 from bn5212_training import plots
+from bn5212_training.metrics import cross_fitted_decisions, decision_summary
 from compare_crossval import interval_figure, load_runs, paired_rows, summary_rows
 
 IDENTIFIERS = {"sample_id", "subject_id", "hadm_id", "stay_id", "study_id", "dicom_id"}
 
-CLINICAL = "Clinical-only (pretrained encoder)"
-CLINICAL_COHORT = "Clinical-only (cohort only)"
-CLINICAL_EXTERNAL = "External clinical model (no cohort fitting)"
-CXR = "CXR-only"
-CONCAT, METRA, CROSS = "Concat fusion", "MeTra joint self-attention", "Cross-attention"
+CLINICAL, CXR, MULTIMODAL = "Clinical-only", "CXR-only", "Clinical + CXR"
 
 # label -> (cross-validation run, benchmark-evaluation result)
 RUNS: dict[str, tuple[str, str]] = {
     CLINICAL: ("clinical_only/v3", "pretrained-v3/clinical_only"),
-    CLINICAL_COHORT: ("clinical_only/v2", "nested-v2/clinical_only"),
-    CLINICAL_EXTERNAL: ("clinical_external/v3", "pretrained-v3/clinical_external"),
     CXR: ("cxr_only/v2", "nested-v2/cxr_only"),
-    CONCAT: ("concat_fusion/v3", "pretrained-v3/concat_fusion"),
-    METRA: ("metra_joint/v3", "pretrained-v3/metra_joint"),
-    CROSS: ("cross_attention/v3", "pretrained-v3/cross_attention"),
-}
-# The same five models with the clinical encoder trained on the cohort alone.
-COHORT_ONLY = {
-    "Clinical-only": "clinical_only/v2",
-    CXR: "cxr_only/v2",
-    CONCAT: "concat_fusion/v2",
-    METRA: "metra_joint/v2",
-    CROSS: "cross_attention/v2",
-}
-ABLATIONS = {
-    "image_encoder": {
-        "ImageNet ViT-B/16, frozen (kept)": "cxr_only/v2",
-        "ViT-Tiny, last 2 blocks fine-tuned": "cxr_tiny_unfreeze2/v2",
-        "DenseNet121 CheXpert, frozen": "cxr_xrv/v2",
-        "ViT-Tiny, frozen": "cxr_tiny_frozen/v2",
-    },
-    "clinical_encoder_cohort_only": {
-        "linear_projection": "clinical_only/v2",
-        "variable_projection": "clinical_only/v2-varproj",
-        "summary_stats": "clinical_only/v2-summary",
-    },
+    # The multimodal model is the project's proposed fusion, cross-attention.
+    MULTIMODAL: ("cross_attention/v3", "pretrained-v3/cross_attention"),
 }
 
 
@@ -67,10 +40,7 @@ def _write(rows: list[dict[str, Any]], path: Path) -> None:
 
 def _test_metrics(benchmark: Path, result: str) -> dict[str, Any]:
     """Test-split numbers as benchmark-evaluation computed them."""
-    path = benchmark / result / "metrics.json"
-    if not path.is_file():
-        return {}
-    metrics = json.loads(path.read_text(encoding="utf-8"))
+    metrics = json.loads((benchmark / result / "metrics.json").read_text(encoding="utf-8"))
     test, interval = metrics["splits"]["test"], metrics["test_patient_bootstrap"]["auroc"]
     return {
         "test_n": test["n"],
@@ -83,12 +53,33 @@ def _test_metrics(benchmark: Path, result: str) -> dict[str, Any]:
     }
 
 
-def _group(outputs: Path, labels: Mapping[str, str] | list[str]):
-    names = labels if isinstance(labels, Mapping) else {label: RUNS[label][0] for label in labels}
-    return load_runs([f"{label}={outputs / run}" for label, run in names.items()])
+def _confusion(runs, benchmark: Path) -> list[dict[str, Any]]:
+    """Confusion counts per model: cross-validation, then the test split.
+
+    Cross-validation decisions threshold each fold at the Youden point of the
+    other folds. Test counts are benchmark-evaluation's, whose threshold is the
+    Youden point of the out-of-fold validation predictions.
+    """
+    rows = []
+    for label, (_, predictions, _) in runs.items():
+        truth = predictions["label"].to_numpy()
+        decisions = cross_fitted_decisions(
+            truth, predictions["y_score"].to_numpy(), predictions["fold"].to_numpy()
+        )
+        rows.append({"model": label, "evaluation": "cross-validation", "n": len(truth),
+                     "threshold_from": "other folds", **decision_summary(truth, decisions)})
+    for label in runs:
+        path = benchmark / RUNS[label][1] / "metrics.json"
+        test = json.loads(path.read_text(encoding="utf-8"))["splits"]["test"]
+        rows.append({"model": label, "evaluation": "test", "n": test["n"],
+                     "threshold_from": "validation (out-of-fold)",
+                     **{key: test[key] for key in ("tn", "fp", "fn", "tp", "sensitivity",
+                                                   "specificity", "precision", "accuracy")}})
+    return rows
 
 
 def _pretraining(pretrain: Path) -> list[dict[str, Any]]:
+    """The external cohort the clinical encoder was pretrained on, in counts."""
     cohort = json.loads((pretrain / "cohort.json").read_text(encoding="utf-8"))
     rows = [{"item": f"cohort flow: {step['stage']}", "value": step["stays"]} for step in cohort["flow"]]
     rows += [
@@ -99,12 +90,10 @@ def _pretraining(pretrain: Path) -> list[dict[str, Any]]:
     ]
     for name, part in cohort["per_split"].items():
         rows.append({"item": f"{name}: stays / deaths", "value": f"{part['stays']} / {part['deaths']}"})
-    for encoder in ("variable_projection", "linear_projection"):
-        report = pretrain / f"{encoder}.json"
-        if report.is_file():
-            external = json.loads(report.read_text(encoding="utf-8"))["external_validation"]
-            rows.append({"item": f"{encoder}: external validation AUROC", "value": round(external["auroc"], 4)})
-            rows.append({"item": f"{encoder}: external validation AUPRC", "value": round(external["auprc"], 4)})
+    external = json.loads((pretrain / "variable_projection.json").read_text(encoding="utf-8"))
+    for metric in ("auroc", "auprc"):
+        rows.append({"item": f"external validation {metric.upper()}",
+                     "value": round(external["external_validation"][metric], 4)})
     return rows
 
 
@@ -118,39 +107,29 @@ def main() -> int:
     outputs, benchmark, results = Path(args.outputs), Path(args.benchmark), Path(args.results)
     figures = results / "figures"
 
-    # Unimodal baselines: the scope of this project.
-    unimodal = _group(outputs, [CLINICAL, CLINICAL_COHORT, CLINICAL_EXTERNAL, CXR])
-    rows = [{**row, **_test_metrics(benchmark, RUNS[row["model"]][1])} for row in summary_rows(unimodal)]
-    _write(rows, results / "unimodal")
-    print(interval_figure(rows, figures / "unimodal_auroc.png"))
+    runs = load_runs([f"{label}={outputs / run}" for label, (run, _) in RUNS.items()])
+    rows = [{**row, **_test_metrics(benchmark, RUNS[row["model"]][1])} for row in summary_rows(runs)]
+    _write(rows, results / "summary")
+    print(interval_figure(rows, figures / "auroc.png"))
     print(plots.roc_comparison(
-        {label: (unimodal[label][1]["label"].to_numpy(), unimodal[label][1]["y_score"].to_numpy())
-         for label in (CLINICAL, CLINICAL_COHORT, CXR)},
-        figures / "unimodal_roc.png",
+        {label: (run[1]["label"].to_numpy(), run[1]["y_score"].to_numpy()) for label, run in runs.items()},
+        figures / "roc.png",
         title=f"Out-of-fold ROC ({rows[0]['events']} events)",
     ))
-    _write(
-        paired_rows(unimodal, [(CLINICAL, CLINICAL_COHORT), (CLINICAL, CXR), (CLINICAL_COHORT, CXR)]),
-        results / "unimodal_paired",
-    )
+    _write(paired_rows(runs, [(CLINICAL, CXR), (MULTIMODAL, CLINICAL), (MULTIMODAL, CXR)]),
+           results / "paired")
 
-    # Every model the framework trains, for context.
-    everything = _group(outputs, [CLINICAL, CXR, CONCAT, METRA, CROSS])
-    rows = [{**row, **_test_metrics(benchmark, RUNS[row["model"]][1])} for row in summary_rows(everything)]
-    _write(rows, results / "all_models")
-    print(interval_figure(rows, figures / "all_models_auroc.png"))
-    _write(
-        paired_rows(everything, [(CXR, CLINICAL), (CONCAT, CLINICAL), (METRA, CLINICAL),
-                                 (CROSS, CLINICAL), (CROSS, METRA), (CROSS, CONCAT)]),
-        results / "all_models_paired",
-    )
+    confusion = _confusion(runs, benchmark)
+    _write(confusion, results / "confusion")
+    # One row of panels per evaluation, one column per model.
+    print(plots.confusion_matrices(
+        [(f"{row['model']}\n{row['evaluation']}, n={row['n']}", row) for row in confusion],
+        figures / "confusion.png",
+        columns=len(runs),
+        title="Confusion matrices, normalised by actual class",
+    ))
 
-    _write(summary_rows(_group(outputs, COHORT_ONLY)), results / "all_models_cohort_only")
-    for name, runs in ABLATIONS.items():
-        _write(summary_rows(_group(outputs, runs)), results / f"ablation_{name}")
-
-    if (Path(args.pretrain) / "cohort.json").is_file():
-        _write(_pretraining(Path(args.pretrain)), results / "pretraining")
+    _write(_pretraining(Path(args.pretrain)), results / "pretraining")
     return 0
 
 

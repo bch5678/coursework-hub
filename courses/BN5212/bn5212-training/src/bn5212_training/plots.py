@@ -33,6 +33,12 @@ SEQUENTIAL = LinearSegmentedColormap.from_list(
     ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
 )
 
+# The same hue from near-surface to dark, for proportions on a fixed 0-1 scale.
+NORMALISED = LinearSegmentedColormap.from_list(
+    "bn5212_blue_from_zero",
+    ["#f1f6fd", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
+)
+
 LINE_WIDTH = 2.0
 MARKER_SIZE = 5.0  # ~10px diameter
 
@@ -425,6 +431,69 @@ def interval_comparison(
 
     frame.to_csv(path.with_suffix(".csv"), index=False, lineterminator="\n")
     return _save(figure, path)
+
+
+def confusion_matrices(
+    panels: Sequence[tuple[str, Mapping[str, int]]],
+    path: str | Path,
+    *,
+    columns: int,
+    title: str,
+) -> Path:
+    """A grid of row-normalised 2x2 confusion matrices.
+
+    Each panel is (heading, tn/fp/fn/tp counts). Colour encodes the share of the
+    true class on one fixed 0-100% scale, so the majority class cannot swamp the
+    figure and a panel with 4 deaths reads on the same scale as one with 27.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = -(-len(panels) // columns)
+    figure, grid = plt.subplots(
+        rows, columns, figsize=(2.6 * columns + 0.9, 2.75 * rows + 0.6), squeeze=False,
+        layout="constrained",
+    )
+    for axes in grid.flat[len(panels):]:
+        axes.set_visible(False)
+    image = None
+    for axes, (heading, counts) in zip(grid.flat, panels):
+        cells = np.array([[counts["tn"], counts["fp"]], [counts["fn"], counts["tp"]]], dtype=float)
+        share = cells / np.maximum(cells.sum(axis=1, keepdims=True), 1.0)
+        image = axes.imshow(share, cmap=NORMALISED, vmin=0.0, vmax=1.0)
+        # A surface-coloured gap separates the cells instead of a border.
+        axes.axhline(0.5, color=SURFACE, linewidth=2.0)
+        axes.axvline(0.5, color=SURFACE, linewidth=2.0)
+        for row in range(2):
+            for column in range(2):
+                # Ink is chosen for contrast against the cell, not to carry meaning.
+                ink = SURFACE if share[row, column] > 0.62 else TEXT_PRIMARY
+                axes.text(column, row - 0.08, f"{share[row, column]:.0%}", ha="center",
+                          va="center", fontsize=12, color=ink)
+                axes.text(column, row + 0.2, f"n = {int(cells[row, column])}", ha="center",
+                          va="center", fontsize=8, color=ink)
+        axes.set_xticks([0, 1], ["survived", "died"])
+        axes.set_yticks([0, 1], ["survived", "died"], rotation=90, va="center")
+        axes.set_xlabel("Predicted", color=TEXT_SECONDARY, fontsize=8)
+        axes.set_ylabel("Actual", color=TEXT_SECONDARY, fontsize=8)
+        axes.set_title(heading, color=TEXT_PRIMARY, fontsize=9, loc="left", pad=8)
+        axes.tick_params(colors=TEXT_SECONDARY, labelsize=8, length=0)
+        for spine in axes.spines.values():
+            spine.set_visible(False)
+    bar = figure.colorbar(image, ax=grid, shrink=0.6, aspect=30, pad=0.03, ticks=[0.0, 0.5, 1.0])
+    bar.ax.set_yticklabels(["0%", "50%", "100%"])
+    bar.ax.tick_params(colors=TEXT_SECONDARY, labelsize=8, length=0)
+    bar.set_label("Share of the actual class", color=TEXT_SECONDARY, fontsize=8)
+    bar.outline.set_visible(False)
+    figure.suptitle(title, color=TEXT_PRIMARY, fontsize=11, x=0.02, ha="left")
+    keys = ("tn", "fp", "fn", "tp")
+    pd.DataFrame(
+        [{"panel": heading.replace("\n", " | "), **{key: counts[key] for key in keys}}
+         for heading, counts in panels]
+    ).to_csv(path.with_suffix(".csv"), index=False, lineterminator="\n")
+    figure.patch.set_facecolor(SURFACE)
+    figure.savefig(path, dpi=160, facecolor=SURFACE)
+    plt.close(figure)
+    return path
 
 
 def write_summary_table(rows: Sequence[Mapping[str, object]], path: str | Path) -> Path:

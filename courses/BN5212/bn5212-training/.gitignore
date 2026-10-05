@@ -3,7 +3,19 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 *.pyc
-/outputs/
+# Run outputs stay on the machine, except the aggregate files of the three
+# final runs: metrics, per-fold tables, curves and the run manifest.
+/outputs/*
+!/outputs/nested_cv/
+/outputs/nested_cv/*
+!/outputs/nested_cv/clinical_only/
+!/outputs/nested_cv/cxr_only/
+!/outputs/nested_cv/cross_attention/
+# Never committed, whatever the run: per-sample rows carry MIMIC identifiers and
+# labels, and final_model/ holds the weights plus numbers measured on the
+# model's own training patients.
+/outputs/**/*predictions*.csv
+/outputs/**/final_model/
 /runs/
 /demo/
 /data/

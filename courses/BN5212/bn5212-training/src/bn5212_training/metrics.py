@@ -170,6 +170,68 @@ def paired_bootstrap_difference(
     }
 
 
+def confusion_counts(labels: np.ndarray, scores: np.ndarray, threshold: float) -> dict[str, int]:
+    """Counts at a threshold; a score equal to the threshold is predicted positive."""
+    labels = np.asarray(labels).astype(int)
+    predicted = np.asarray(scores, dtype=np.float64) >= threshold
+    return {
+        "tn": int(((labels == 0) & ~predicted).sum()),
+        "fp": int(((labels == 0) & predicted).sum()),
+        "fn": int(((labels == 1) & ~predicted).sum()),
+        "tp": int(((labels == 1) & predicted).sum()),
+    }
+
+
+def youden_threshold(labels: np.ndarray, scores: np.ndarray) -> float:
+    """The observed score maximising sensitivity + specificity - 1.
+
+    Same rule as benchmark-evaluation, ties included: the candidate nearer 0.5
+    wins, then the larger one.
+    """
+    labels = np.asarray(labels).astype(int)
+    scores = np.asarray(scores, dtype=np.float64)
+    if len(np.unique(labels)) != 2:
+        raise ValueError("Both classes are needed to choose a threshold")
+    ranked = []
+    for threshold in np.unique(scores):
+        counts = confusion_counts(labels, scores, float(threshold))
+        sensitivity = counts["tp"] / (counts["tp"] + counts["fn"])
+        specificity = counts["tn"] / (counts["tn"] + counts["fp"])
+        ranked.append((sensitivity + specificity - 1.0, -abs(float(threshold) - 0.5), float(threshold)))
+    return max(ranked)[2]
+
+
+def cross_fitted_decisions(labels: np.ndarray, scores: np.ndarray, folds: np.ndarray) -> np.ndarray:
+    """Positive/negative decisions for out-of-fold scores, without peeking.
+
+    Each fold is thresholded at the Youden point of the other folds, so the
+    labels of the samples being classified never choose their own threshold.
+    """
+    labels = np.asarray(labels).astype(int)
+    scores = np.asarray(scores, dtype=np.float64)
+    folds = np.asarray(folds)
+    decisions = np.zeros(len(labels), dtype=bool)
+    for fold in np.unique(folds):
+        held = folds == fold
+        decisions[held] = scores[held] >= youden_threshold(labels[~held], scores[~held])
+    return decisions
+
+
+def decision_summary(labels: np.ndarray, decisions: np.ndarray) -> dict[str, float | int]:
+    """Confusion counts and the rates read off them."""
+    labels = np.asarray(labels).astype(int)
+    counts = confusion_counts(labels, np.asarray(decisions, dtype=np.float64), 0.5)
+    positives, negatives = counts["tp"] + counts["fn"], counts["tn"] + counts["fp"]
+    flagged = counts["tp"] + counts["fp"]
+    return {
+        **counts,
+        "sensitivity": counts["tp"] / positives if positives else None,
+        "specificity": counts["tn"] / negatives if negatives else None,
+        "precision": counts["tp"] / flagged if flagged else None,
+        "accuracy": (counts["tp"] + counts["tn"]) / max(len(labels), 1),
+    }
+
+
 def is_better(metric: str, candidate: float | None, incumbent: float | None) -> bool:
     """Direction-aware comparison for checkpoint selection."""
     if candidate is None:

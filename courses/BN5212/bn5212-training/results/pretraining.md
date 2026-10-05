@@ -14,7 +14,5 @@
 | external deaths | 1313 |
 | pretrain_train: stays / deaths | 12121 / 1100 |
 | pretrain_val: stays / deaths | 2188 / 213 |
-| variable_projection: external validation AUROC | 0.8480 |
-| variable_projection: external validation AUPRC | 0.4258 |
-| linear_projection: external validation AUROC | 0.7912 |
-| linear_projection: external validation AUPRC | 0.3660 |
+| external validation AUROC | 0.8480 |
+| external validation AUPRC | 0.4258 |
