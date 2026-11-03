@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every experiment against one frozen dataset run, then build the comparison table.
+# Run the unimodal baselines against one frozen dataset run, then build the comparison table.
 #
 #   ./scripts/run_all_experiments.sh
 #   ./scripts/run_all_experiments.sh --preset real \
@@ -14,7 +14,7 @@ RUN_DIR=""
 CLINICAL_SOURCE=""
 DEVICE=""
 RUN_ID=""
-EXPERIMENTS="clinical_only cxr_only concat_fusion metra_joint cross_attention"
+EXPERIMENTS="clinical_only cxr_only"
 
 while [ $# -gt 0 ]; do
   case "$1" in

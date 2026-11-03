@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pretrained = ["timm>=1.0,<2"]
+download = ["requests>=2.31,<3"]
 test = ["pytest>=8,<10"]
 
 [project.scripts]
@@ -28,8 +29,9 @@ bn5212-extract-clinical = "bn5212_training.cli:extract_clinical_main"
 bn5212-crossval = "bn5212_training.cli:crossval_main"
 bn5212-build-image-cache = "bn5212_training.cli:build_image_cache_main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["bn5212_training", "bn5212_training.fusion"]
+package-dir = {"bn5212_training" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -34,7 +34,7 @@ EXPERIMENTS = [
     ("cxr_only", ["cxr"], "image_only"),
     ("concat_fusion", ["clinical", "cxr"], "concat_mlp"),
     ("metra_joint", ["clinical", "cxr"], "joint_self_attention"),
-    ("cross_attention", ["clinical", "cxr"], "cross_attention"),
+    ("cross_attention_adapter", ["clinical", "cxr"], "cross_attention_adapter"),
 ]
 
 
@@ -59,6 +59,9 @@ def test_every_experiment_runs_and_emits_the_same_artefacts(
     assert (root / "figures" / "training_curves.png").is_file()
     # Every figure ships a table view alongside it.
     assert (root / "figures" / "training_curves.csv").is_file()
+    if fusion == "cross_attention_adapter":
+        assert (root / "figures" / "attention_matrix.png").is_file()
+        assert (root / "figures" / "attention_patch_maps.png").is_file()
 
 
 def test_predictions_match_the_frozen_split_exactly(base_config, tmp_path):

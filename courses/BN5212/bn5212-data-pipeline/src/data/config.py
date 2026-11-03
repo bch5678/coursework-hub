@@ -90,8 +90,13 @@ def validate_config(cfg: dict) -> None:
     if not math.isfinite(a["minimum_hours_before_end"]) or a["minimum_hours_before_end"] < 0:
         raise ValueError("minimum_hours_before_end must be nonnegative")
     label = cfg["label"]
-    if label["kind"] not in {"in_hospital_mortality", "admission_binary"}:
+    if label["kind"] not in {"in_hospital_mortality", "admission_binary", "icu_transfer"}:
         raise ValueError("Unknown label.kind")
+    if label["kind"] == "icu_transfer":
+        if unit != "admission" or cfg["cohort"]["selection"] != "first_per_admission":
+            raise ValueError("icu_transfer requires admission unit and first_per_admission selection")
+        if label["column"] != "icu_transfer" or label["positive_values"] != ["1"] or label["negative_values"] != ["0"]:
+            raise ValueError("icu_transfer uses a derived icu_transfer label with the standard 1/0 mapping")
     if label["kind"] == "in_hospital_mortality" and (label["column"] != "hospital_expire_flag" or label["positive_values"] != ["1"] or label["negative_values"] != ["0"]):
         raise ValueError("Mortality requires hospital_expire_flag and the standard 1/0 mapping")
     pos, neg = map(lambda x: set(map(str, x)), (label["positive_values"], label["negative_values"]))

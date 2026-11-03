@@ -136,12 +136,9 @@ v2 只用 cohort 训练；v3 的临床编码器先在 cohort 以外的 ICU 住�
 |---|---:|---|---:|
 | Clinical-only | 0.725 | [0.629, 0.815] | 0.606 |
 | CXR-only | 0.552 | [0.432, 0.679] | 0.552 |
-| Concat fusion | 0.686 | [0.591, 0.780] | 0.605 |
-| MeTra joint self-attention | 0.531 | [0.415, 0.653] | 0.567 |
-| Cross-attention | 0.671 | [0.564, 0.764] | 0.623 |
 
-v3 里唯一排除 0 的配对差异是 MeTra joint 低于 clinical-only（−0.195，[−0.339, −0.035]）。
-加入胸片没有提升；cross-attention 比 MeTra 高 0.140，但区间 [−0.026, +0.286] 包含 0。
+本页仅保留院内死亡任务的单模态结果；多模态实验统一见
+[ICU 转入 v3 结果](../results/multimodal_v3/README.md)。两者任务与队列不同。
 
 **置信区间按患者 bootstrap**，不是按行——同一患者的多张片不独立。
 
@@ -175,14 +172,14 @@ cd ..\bn5212-training
 .\.venv\Scripts\bn5212-crossval.exe --config configs\icu\<实验>.json --folds 5 --device cuda
 ```
 
-`configs/icu/` 里五个实验的 encoder、prediction head、optimizer、schedule、seed
-完全相同，**只差 fusion 名字**。做多模态时请沿用这些配置，不要另起一套超参数，
-否则比较的就不只是 fusion。
+`configs/icu/` 保留院内死亡单模态基线和编码器消融配置。
+当前 ICU 转入多模态实验使用 `configs/icu_transfer/`，具体协议见
+[运行说明](RUN_THREE_MULTIMODAL.md)。
 
 ## 8. 不要动的东西
 
 - **不要重建 split。** 换 seed 或换比例，所有已有结果就不可比。
-- **不要用 admission 级 cohort 做多模态**（第 2 节的两个混杂）。
+- **本页院内死亡基线保持 ICU stay 级 cohort**（第 2 节的两个混杂）；当前 ICU 转入任务按住院建模，有独立的标签与纳入规则。
 - **不要在交叉验证之外调超参数然后报告 CV 分数。** 27 个事件下试 6 种设置挑最好的，
   期望值会虚高 0.05–0.10，刚好是想检测的效应量。要调就用嵌套交叉验证。
 - **不要用含 MIMIC 的预训练权重**（torchxrayvision 的 `-all` 和 `-mimic`）。

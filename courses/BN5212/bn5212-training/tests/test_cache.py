@@ -90,6 +90,24 @@ def test_matching_spec_is_accepted(built_cache, dataset_run):
     assert len(ImageCache(output, spec)) > 0
 
 
+def test_standalone_inference_rejects_a_stale_cache(built_cache, dataset_run, tmp_path):
+    from bn5212_training.config import config_from_dict
+    from bn5212_training.predict import build_inference_loader
+
+    output, _report = built_cache
+    metadata = json.loads(Path(output).read_text(encoding="utf-8"))
+    metadata["index_sha256"] = "0" * 64
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps(metadata), encoding="utf-8")
+    cfg = config_from_dict({
+        "experiment": "stale_cache",
+        "modalities": ["cxr"],
+        "data": {"run_dir": dataset_run, "image_cache": str(stale)},
+    })
+    with pytest.raises(ValueError, match="different index.csv"):
+        build_inference_loader(cfg, "test")
+
+
 def test_unknown_sample_raises_rather_than_returning_noise(built_cache):
     output, _report = built_cache
     cache = ImageCache(output)

@@ -1,0 +1,4 @@
+experiment,run_id,modalities,fusion,val_auroc,val_auprc,val_brier,selected_epoch,epochs_run,total_parameters,seed
+concat,fit,clinical+cxr,concat_mlp,0.70625,0.3857642547116231,0.129737099633982,9,24,85863681,5212
+joint,fit,clinical+cxr,joint_self_attention,0.734375,0.3422696385902031,0.1299339069260815,6,21,85923713,5212
+cross_attention_adapter,fit,clinical+cxr,cross_attention_adapter,0.64375,0.3859483399895958,0.126476492401036,11,26,85909825,5212

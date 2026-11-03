@@ -1,4 +1,4 @@
-# Run every experiment against one frozen dataset run, then build the comparison table.
+# Run the unimodal baselines against one frozen dataset run, then build the comparison table.
 #
 #   .\scripts\run_all_experiments.ps1                      # local synthetic fixture
 #   .\scripts\run_all_experiments.ps1 -Preset real -RunDir /srv/derived/bn5212/mortality_v1 `
@@ -16,7 +16,7 @@ param(
     [string]$ConfigDir = "",
     [switch]$CrossValidate,
     [int]$Folds = 5,
-    [string[]]$Experiments = @("clinical_only", "cxr_only", "concat_fusion", "metra_joint", "cross_attention")
+    [string[]]$Experiments = @("clinical_only", "cxr_only")
 )
 
 $ErrorActionPreference = "Stop"

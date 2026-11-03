@@ -23,7 +23,6 @@ CLINICAL = "Clinical-only (pretrained encoder)"
 CLINICAL_COHORT = "Clinical-only (cohort only)"
 CLINICAL_EXTERNAL = "External clinical model (no cohort fitting)"
 CXR = "CXR-only"
-CONCAT, METRA, CROSS = "Concat fusion", "MeTra joint self-attention", "Cross-attention"
 
 # label -> (cross-validation run, benchmark-evaluation result)
 RUNS: dict[str, tuple[str, str]] = {
@@ -31,17 +30,6 @@ RUNS: dict[str, tuple[str, str]] = {
     CLINICAL_COHORT: ("clinical_only/v2", "nested-v2/clinical_only"),
     CLINICAL_EXTERNAL: ("clinical_external/v3", "pretrained-v3/clinical_external"),
     CXR: ("cxr_only/v2", "nested-v2/cxr_only"),
-    CONCAT: ("concat_fusion/v3", "pretrained-v3/concat_fusion"),
-    METRA: ("metra_joint/v3", "pretrained-v3/metra_joint"),
-    CROSS: ("cross_attention/v3", "pretrained-v3/cross_attention"),
-}
-# The same five models with the clinical encoder trained on the cohort alone.
-COHORT_ONLY = {
-    "Clinical-only": "clinical_only/v2",
-    CXR: "cxr_only/v2",
-    CONCAT: "concat_fusion/v2",
-    METRA: "metra_joint/v2",
-    CROSS: "cross_attention/v2",
 }
 ABLATIONS = {
     "image_encoder": {
@@ -134,18 +122,6 @@ def main() -> int:
         results / "unimodal_paired",
     )
 
-    # Every model the framework trains, for context.
-    everything = _group(outputs, [CLINICAL, CXR, CONCAT, METRA, CROSS])
-    rows = [{**row, **_test_metrics(benchmark, RUNS[row["model"]][1])} for row in summary_rows(everything)]
-    _write(rows, results / "all_models")
-    print(interval_figure(rows, figures / "all_models_auroc.png"))
-    _write(
-        paired_rows(everything, [(CXR, CLINICAL), (CONCAT, CLINICAL), (METRA, CLINICAL),
-                                 (CROSS, CLINICAL), (CROSS, METRA), (CROSS, CONCAT)]),
-        results / "all_models_paired",
-    )
-
-    _write(summary_rows(_group(outputs, COHORT_ONLY)), results / "all_models_cohort_only")
     for name, runs in ABLATIONS.items():
         _write(summary_rows(_group(outputs, runs)), results / f"ablation_{name}")
 

@@ -1,0 +1,21 @@
+{
+  "experiment": "cross_attention_adapter_synthetic",
+  "notes": "Synthetic smoke test only; not a clinical benchmark.",
+  "modalities": ["clinical", "cxr"],
+  "data": {
+    "run_dir": "../bn5212-data-pipeline/demo/png/processed",
+    "clinical_provider": "synthetic",
+    "clinical_timesteps": 12,
+    "batch_size": 8
+  },
+  "image_encoder": {
+    "name": "vit", "embed_dim": 32, "patch_size": 8, "depth": 1, "num_heads": 4
+  },
+  "clinical_encoder": {"embed_dim": 32},
+  "fusion": {
+    "name": "cross_attention_adapter", "embed_dim": 32, "depth": 1, "num_heads": 4
+  },
+  "optim": {"epochs": 2, "warmup_epochs": 0, "amp": false},
+  "seed": 5212,
+  "device": "cpu"
+}

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .cohort import align_images, restrict_to_icu_stays, select_images
+from .cohort import align_images, label_icu_transfer, restrict_to_icu_stays, select_images
 from .config import load_config
 from .dataset import INDEX_COLUMNS
 from .io import Audit, safe_path, sha256, write_json
@@ -58,6 +58,10 @@ def build(config_path):
         source_files += metadata_files
         aligned = align_images(cxr, admissions, cfg, audit)
         unit = cfg["cohort"].get("unit", "admission")
+        if cfg["label"]["kind"] == "icu_transfer":
+            stays, icu_files = load_icu_stays(cfg, audit)
+            source_files += icu_files
+            aligned = label_icu_transfer(aligned, stays, cfg, audit)
         if unit == "icu_stay":
             stays, icu_files = load_icu_stays(cfg, audit)
             source_files += icu_files

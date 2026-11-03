@@ -10,7 +10,7 @@
 因此和数据负责人的模块互不冲突。
 
 分工上，按 CONTRIBUTING，新增 MIMIC 表的清洗本属数据侧工作。
-如果数据负责人接手，把 `src/bn5212_training/extract.py` 和
+如果数据负责人接手，把 `src/extract.py` 和
 `configs/clinical_items.json` 整体搬进流水线项目即可，接口不变。
 
 ## 1. 产出什么

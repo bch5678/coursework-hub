@@ -47,17 +47,31 @@ def align_images(cxr, admissions, cfg, audit):
     if max_hours is not None:
         frame = audit.filter(frame, frame.hours_since_admission.le(max_hours), "early_imaging_window", "images")
     label = cfg["label"]
-    values = frame[label["column"]]
+    values = pd.Series("0", index=frame.index) if label["kind"] == "icu_transfer" else frame[label["column"]]
     if label["kind"] == "in_hospital_mortality":
         values = pd.to_numeric(values).astype(int).astype(str)
     mapping = {str(x): 1 for x in label["positive_values"]} | {str(x): 0 for x in label["negative_values"]}
     frame["label"] = values.map(mapping)
     frame = audit.filter(frame, frame.label.notna(), "known_binary_label", "images")
     frame["label"] = frame.label.astype(int)
-    frame["label_name"] = label["kind"] if label["kind"] == "in_hospital_mortality" else label["column"]
+    frame["label_name"] = label["kind"] if label["kind"] in {"in_hospital_mortality", "icu_transfer"} else label["column"]
     # Always present so both cohort units publish one index schema; filled in by
     # restrict_to_icu_stays when the ICU unit is selected.
     frame["stay_id"] = ""
+    return frame
+
+
+def label_icu_transfer(frame, stays, cfg, audit):
+    """Predict the first ICU entry after CXR in the same admission."""
+    first = stays.groupby(["subject_id", "hadm_id"], as_index=False).intime.min()
+    first = first.rename(columns={"intime": "first_icu_intime"})
+    frame = frame.merge(first, on=["subject_id", "hadm_id"], how="left", validate="many_to_one")
+    eligible = frame.first_icu_intime.isna() | frame.first_icu_intime.gt(frame.study_time)
+    frame = audit.filter(frame, eligible, "not_previously_in_icu_at_cxr", "images")
+    frame["label"] = (
+        frame.first_icu_intime.gt(frame.study_time) & frame.first_icu_intime.lt(frame.event_cutoff)
+    ).astype(int)
+    frame["label_name"] = "icu_transfer"
     return frame
 
 

@@ -32,14 +32,14 @@ def test_every_registered_strategy_is_buildable():
     assert set(FUSIONS.names()) == {
         "clinical_only",
         "concat_mlp",
-        "cross_attention",
+        "cross_attention_adapter",
         "image_only",
         "joint_self_attention",
     }
 
 
 @pytest.mark.parametrize(
-    "name", ["image_only", "clinical_only", "concat_mlp", "joint_self_attention", "cross_attention"]
+    "name", ["image_only", "clinical_only", "concat_mlp", "joint_self_attention", "cross_attention_adapter"]
 )
 def test_output_is_one_pooled_vector_per_sample(name):
     fusion = _build(name)
@@ -59,7 +59,7 @@ def test_unimodal_strategies_accept_a_missing_modality():
 
 def test_multimodal_strategies_refuse_a_missing_modality():
     image, clinical, mask = _tokens()
-    for name in ("joint_self_attention", "cross_attention", "concat_mlp"):
+    for name in ("joint_self_attention", "cross_attention_adapter", "concat_mlp"):
         with pytest.raises(ValueError, match="requires"):
             _build(name)(image_tokens=image)
         with pytest.raises(ValueError, match="requires"):
@@ -70,7 +70,7 @@ def test_padded_clinical_tokens_do_not_change_other_samples():
     """A fully padded row must stay finite rather than producing NaN in softmax."""
     image, clinical, mask = _tokens()
     mask[0] = False
-    for name in ("joint_self_attention", "cross_attention"):
+    for name in ("joint_self_attention", "cross_attention_adapter"):
         output = _build(name)(image_tokens=image, clinical_tokens=clinical, clinical_mask=mask)
         assert torch.isfinite(output).all()
 
@@ -88,28 +88,6 @@ def test_masked_mean_ignores_padded_positions():
     assert torch.allclose(with_padding, only_valid, atol=1e-5)
 
 
-def test_bidirectional_cross_attention_doubles_the_output_width():
-    assert _build("cross_attention", direction="clinical_to_image").output_dim == WIDTH
-    assert _build("cross_attention", direction="image_to_clinical").output_dim == WIDTH
-    assert _build("cross_attention", direction="bidirectional").output_dim == 2 * WIDTH
-
-
-def test_cross_attention_records_weights_for_rq3():
-    fusion = _build("cross_attention")
-    image, clinical, mask = _tokens()
-    assert fusion.last_attention() is None  # not recorded during training
-
-    fusion.record_attention = True
-    fusion(image_tokens=image, clinical_tokens=clinical, clinical_mask=mask)
-    weights = fusion.last_attention()
-    # [B, heads, clinical tokens, image tokens] -- one row per clinical variable.
-    assert weights is not None
-    assert weights.shape[0] == BATCH
-    assert weights.shape[-2:] == (CLINICAL_TOKENS, IMAGE_TOKENS)
-    attended = weights.sum(dim=-1)
-    assert torch.allclose(attended, torch.ones_like(attended), atol=1e-4)
-
-
 def test_joint_self_attention_validates_token_counts():
     fusion = _build("joint_self_attention")
     image, clinical, mask = _tokens()
@@ -122,3 +100,40 @@ def test_joint_self_attention_validates_token_counts():
 def test_unknown_strategy_lists_the_available_ones():
     with pytest.raises(KeyError, match="Available"):
         _build("no_such_fusion")
+
+
+def test_concat_patch_pooling_ignores_cls_and_uses_image_regions():
+    torch.manual_seed(5212)
+    fusion = _build("concat_mlp", concat_image_pooling="patch_mean").eval()
+    image, clinical, mask = _tokens()
+    expected = fusion(image, clinical, mask)
+    changed = image.clone()
+    changed[:, 0] = torch.randn_like(changed[:, 0]) * 100
+    torch.testing.assert_close(expected, fusion(changed, clinical, mask))
+    changed[:, 1:] = torch.randn_like(changed[:, 1:])
+    assert not torch.allclose(expected, fusion(changed, clinical, mask))
+    with pytest.raises(ValueError, match="patches"):
+        fusion(image[:, :1], clinical, mask)
+
+
+def test_concat_rejects_unknown_image_pooling():
+    with pytest.raises(ValueError, match="concat_image_pooling"):
+        _build("concat_mlp", concat_image_pooling="unknown")
+
+
+def test_document_concat_passes_raw_128_style_vector_to_head():
+    fusion = _build("concat_mlp", concat_project=False, concat_image_pooling="patch_mean")
+    image, clinical, mask = _tokens()
+    mask[:, -1] = False
+    expected = torch.cat([image[:, 1:].mean(1), clinical[:, :-1].mean(1)], dim=-1)
+    torch.testing.assert_close(fusion(image, clinical, mask), expected)
+    assert fusion.output_dim == 2 * WIDTH
+    assert sum(p.numel() for p in fusion.parameters()) == 0
+
+
+def test_image_only_patch_pooling_ignores_cls():
+    fusion = _build("image_only", pooling="patch_mean").eval()
+    image, _, _ = _tokens()
+    expected = fusion(image_tokens=image)
+    image[:, 0] = torch.randn_like(image[:, 0]) * 100
+    torch.testing.assert_close(fusion(image_tokens=image), expected)

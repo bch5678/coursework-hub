@@ -27,7 +27,7 @@ uses_clinical = True
 
 ## 加一个新策略
 
-在 `src/bn5212_training/fusion/` 下新建一个文件：
+在 `src/fusion/` 下新建一个文件：
 
 ```python
 from ..config import FusionConfig
@@ -55,7 +55,7 @@ def build_my_fusion(cfg: FusionConfig, *, num_image_tokens, num_clinical_tokens,
 ```
 
 然后在 `fusion/__init__.py` 的 import 行里加上这个模块，让注册生效。复制一份
-`configs/cross_attention.json`，把 `fusion.name` 改成 `my_fusion`，就可以跑：
+`configs/icu_transfer/cross_attention_adapter.json`，把 `fusion.name` 改成 `my_fusion`，就可以跑：
 
 ```bash
 bn5212-train --config configs/my_fusion.json --run-dir <frozen run>
@@ -89,7 +89,7 @@ bn5212-train --config configs/my_fusion.json --run-dir <frozen run>
 如果你的模块产生跨模态 attention，实现 `last_attention()` 返回
 `[B, heads, M, N]`（M = 临床 token 数，N = 影像 token 数），并用一个开关控制是否
 记录——训练时记录会关掉 PyTorch 的 fast attention path，拖慢速度。
-参考 `cross_attention.py` 里的 `record_attention`。
+参考 `cross_attention_adapter.py` 里的 `record_attention`。
 
 只要形状对，框架会自动画出两张 RQ3 图：
 `attention_matrix.png`（变量 × patch）和 `attention_patch_maps.png`
@@ -105,18 +105,12 @@ bn5212-train --config configs/my_fusion.json --run-dir <frozen run>
 |---|---|---|---|
 | `image_only` | ✓ | | CXR-only，取 ViT 的 CLS 或 mean pooling |
 | `clinical_only` | | ✓ | Clinical-only，masked mean pooling |
-| `concat_mlp` | ✓ | ✓ | 简单融合参照：各自 pool → concat → 一层 MLP |
+| `concat_mlp` | ✓ | ✓ | 临床masked mean＋影像CLS或patch_mean；默认投影到D，concat_project=false时直接输出2D给head |
 | `joint_self_attention` | ✓ | ✓ | MeTra baseline |
-| `cross_attention` | ✓ | ✓ | 提出的方法，**归你所有** |
+| `cross_attention_adapter` | ✓ | ✓ | 临床 Q、仅影像 patch K/V；详见 [接入说明](CROSS_ATTENTION_ADAPTER.md) |
 
-`cross_attention.py` 目前是框架提供的参考实现，目的是让四个实验今天就能端到端跑通。
-你可以直接在上面改，也可以整个换掉——只要保持签名和注册名不变，其他文件都不用动。
-
-`fusion.direction` 已经支持项目计划的 Optional 1 和 Optional 2：
-
-- `clinical_to_image`（默认）：`Q=C, K=V=I`
-- `image_to_clinical`：`Q=I, K=V=C`
-- `bidirectional`：两个方向都做，concat 后 `output_dim = 2 × embed_dim`
+当前只保留 v3 使用的三个多模态策略。Adapter 的方向为 `clinical_to_image`；
+Concat 在 v3 中输出 128 维，Joint 和 Adapter 输出 64 维。
 
 ## 跑通之前请确认
 
@@ -125,4 +119,4 @@ bn5212-train --config configs/my_fusion.json --run-dir <frozen run>
 ```
 
 `tests/test_fusion.py` 对每个注册的策略做参数化测试：输出形状、缺失模态的拒绝行为、
-mask 语义、attention 权重形状与归一化。新策略加进注册表后会自动被这些测试覆盖。
+mask 语义、attention 权重形状与归一化。新增策略时需同步更新测试的策略列表。

@@ -1,0 +1,264 @@
+{
+  "task": "icu_transfer",
+  "run_id": "transfer_multimodal_v3_20261030_161749",
+  "models": {
+    "concat": {
+      "source_predictions": "courses/BN5212/bn5212-training/outputs/three_multimodal/transfer_multimodal_v3_20261030_161749/benchmark/concat/predictions.csv",
+      "predictions_sha256": "af8c24a29ccf78ce0afc5f478cd6a68e2705c4aeaedb95cc4e4e066026183eef",
+      "metrics_sha256": "706993b322548d8d1fa2b34741c360698557e96de9ac2f048c877a74ecc1f818",
+      "threshold_from_validation": 0.112803503870964,
+      "test_confusion_matrix": [
+        [
+          17,
+          13
+        ],
+        [
+          1,
+          6
+        ]
+      ],
+      "validation_histogram_bins": [
+        0.0,
+        0.05,
+        0.1,
+        0.15000000000000002,
+        0.2,
+        0.25,
+        0.30000000000000004,
+        0.35000000000000003,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6000000000000001,
+        0.65,
+        0.7000000000000001,
+        0.75,
+        0.8,
+        0.8500000000000001,
+        0.9,
+        0.9500000000000001,
+        1.0
+      ],
+      "validation_histogram_counts": {
+        "0": [
+          4,
+          18,
+          6,
+          5,
+          3,
+          2,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "1": [
+          0,
+          1,
+          3,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "validation_scores_match_original_training_export": true
+    },
+    "joint": {
+      "source_predictions": "courses/BN5212/bn5212-training/outputs/three_multimodal/transfer_multimodal_v3_20261030_161749/benchmark/joint/predictions.csv",
+      "predictions_sha256": "237cabe9682345f04bf99c6a2b1acde4681e768e149f8e9e41c24890a66e50cd",
+      "metrics_sha256": "13bb0e3c86ff4d531c38baf67ec6f849ef27cc15123752fd5fee96d0298a59c9",
+      "threshold_from_validation": 0.1137470677495002,
+      "test_confusion_matrix": [
+        [
+          13,
+          17
+        ],
+        [
+          0,
+          7
+        ]
+      ],
+      "validation_histogram_bins": [
+        0.0,
+        0.05,
+        0.1,
+        0.15000000000000002,
+        0.2,
+        0.25,
+        0.30000000000000004,
+        0.35000000000000003,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6000000000000001,
+        0.65,
+        0.7000000000000001,
+        0.75,
+        0.8,
+        0.8500000000000001,
+        0.9,
+        0.9500000000000001,
+        1.0
+      ],
+      "validation_histogram_counts": {
+        "0": [
+          0,
+          13,
+          8,
+          6,
+          5,
+          2,
+          2,
+          2,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "1": [
+          0,
+          0,
+          2,
+          1,
+          2,
+          0,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "validation_scores_match_original_training_export": true
+    },
+    "cross_attention_adapter": {
+      "source_predictions": "courses/BN5212/bn5212-training/outputs/three_multimodal/transfer_multimodal_v3_20261030_161749/benchmark/cross_attention_adapter/predictions.csv",
+      "predictions_sha256": "b0e5b4ed1f12b00a51b13edcaf90ada5d9f1f6d271845e5ba89d0b9bb88c3280",
+      "metrics_sha256": "ffa98733f126601f2c24b74a88ef368edc8607d0d80360a83faa1742ab08fda1",
+      "threshold_from_validation": 0.2266402393579483,
+      "test_confusion_matrix": [
+        [
+          28,
+          2
+        ],
+        [
+          6,
+          1
+        ]
+      ],
+      "validation_histogram_bins": [
+        0.0,
+        0.05,
+        0.1,
+        0.15000000000000002,
+        0.2,
+        0.25,
+        0.30000000000000004,
+        0.35000000000000003,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6000000000000001,
+        0.65,
+        0.7000000000000001,
+        0.75,
+        0.8,
+        0.8500000000000001,
+        0.9,
+        0.9500000000000001,
+        1.0
+      ],
+      "validation_histogram_counts": {
+        "0": [
+          0,
+          20,
+          11,
+          4,
+          2,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "1": [
+          0,
+          3,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "validation_scores_match_original_training_export": true
+    }
+  }
+}

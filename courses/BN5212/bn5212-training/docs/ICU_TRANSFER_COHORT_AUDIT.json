@@ -1,0 +1,46 @@
+{
+  "reference_from_summary": {
+    "admissions": 244,
+    "patients": 186,
+    "positives": 42
+  },
+  "current_run": "courses/BN5212/bn5212-training/data/runs/icu_transfer_v1",
+  "scenarios": {
+    "current": {
+      "admissions": 280,
+      "patients": 218,
+      "positives": 47
+    },
+    "at_least_one_lab": {
+      "admissions": 252,
+      "patients": 201,
+      "positives": 42
+    },
+    "at_least_24h_after_cxr": {
+      "admissions": 244,
+      "patients": 192,
+      "positives": 47
+    },
+    "sodium_observed": {
+      "admissions": 244,
+      "patients": 196,
+      "positives": 42
+    }
+  },
+  "duplicates": {
+    "sample_id": 0,
+    "hadm_id": 0
+  },
+  "no_labs": {
+    "admissions": 28,
+    "patients": 25,
+    "positives": 5
+  },
+  "conclusion": "Original 244-admission identifiers and inclusion code are unavailable. No tested alternative reproduces all three historical counts; current 280 is a newly constructed cohort, not a verified superset of the historical cohort.",
+  "t0_comparison_with_1054_admission_bundle": {
+    "shared_admissions": 280,
+    "old_t0_before_admission": 59,
+    "different_t0_beyond_0_00501_hours_rounding_tolerance": 61,
+    "note": "1054-admission bundle is not the historical 244-admission cohort; this establishes a protocol difference, not the exact cause of its 36-admission count difference."
+  }
+}

@@ -8,7 +8,9 @@ from .io import deduplicate, read_csv, table_path, valid_ids
 def load_hospital_tables(cfg, audit):
     root = Path(cfg["paths"]["mimic_iv_root"])
     admissions_path, patients_path = table_path(root, "admissions"), table_path(root, "patients")
-    required = ["subject_id", "hadm_id", "admittime", "dischtime", "deathtime", "hospital_expire_flag", cfg["label"]["column"]]
+    required = ["subject_id", "hadm_id", "admittime", "dischtime", "deathtime", "hospital_expire_flag"]
+    if cfg["label"]["kind"] != "icu_transfer":
+        required.append(cfg["label"]["column"])
     a = read_csv(admissions_path, required)
     a = a[list(dict.fromkeys(required))]
     a = audit.filter(a, valid_ids(a, ["subject_id", "hadm_id"]), "valid_admission_ids", "admissions")
@@ -55,5 +57,7 @@ def load_icu_stays(cfg, audit):
     audit.flow.append({"stage": "deduplicate_icu_stays", "unit": "icu_stays", "before": before, "after": len(stays), "excluded": before - len(stays)})
     for key in ["intime", "outtime"]:
         stays[key] = pd.to_datetime(stays[key], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    if cfg["label"]["kind"] == "icu_transfer" and stays.intime.isna().any():
+        raise ValueError("ICU transfer labels require valid intime for every ICU stay; unknown times cannot become negative labels")
     stays = audit.filter(stays, stays.intime.notna(), "valid_icu_intime", "icu_stays")
     return stays, [path]
